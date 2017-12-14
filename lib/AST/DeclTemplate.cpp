@@ -799,6 +799,27 @@ ClassTemplateSpecializationDecl::getSourceRange() const {
 }
 
 //===----------------------------------------------------------------------===//
+// ConceptDecl Implementation
+//===----------------------------------------------------------------------===//
+ConceptDecl *ConceptDecl::Create(ASTContext &C, DeclContext *DC,
+                                 SourceLocation L, DeclarationName Name,
+                                 TemplateParameterList *Params,
+                                 Expr *ConstraintExpr) {
+  // TODO: Do we need this?
+  //  AdoptTemplateParameterList(Params, cast<DeclContext>(Decl));
+  return new (C, DC) ConceptDecl(DC, L, Name, Params, ConstraintExpr);
+}
+
+ConceptDecl *ConceptDecl::CreateDeserialized(ASTContext &C,
+                                             unsigned ID) {
+  ConceptDecl *Result = new (C, ID) ConceptDecl(nullptr, SourceLocation(),
+                                                DeclarationName(),
+                                                nullptr, nullptr);
+
+  return Result;
+}
+
+//===----------------------------------------------------------------------===//
 // ClassTemplatePartialSpecializationDecl Implementation
 //===----------------------------------------------------------------------===//
 void ClassTemplatePartialSpecializationDecl::anchor() {}

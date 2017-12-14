@@ -768,6 +768,9 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case OMPDeclareReduction:
       return IDNS_OMPReduction;
 
+    case Concept:
+      return IDNS_Ordinary | IDNS_Tag;
+
     // Never have names.
     case Friend:
     case FriendTemplate:

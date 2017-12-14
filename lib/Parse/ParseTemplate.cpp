@@ -54,6 +54,15 @@ Parser::ParseDeclarationStartingWithTemplate(unsigned Context,
 ///       template-declaration: [C++ temp]
 ///         'export'[opt] 'template' '<' template-parameter-list '>' declaration
 ///
+///       template-declaration: [C++2a]
+///         template-head declaration
+///         template-head concept-definition
+///
+///       TODO: requires-clause
+///       template-head: [C++2a]
+///         'export'[opt] 'template' '<' template-parameter-list '>'
+///             requires-clause[opt]
+///
 ///       explicit-specialization: [ C++ temp.expl.spec]
 ///         'template' '<' '>' declaration
 Decl *
@@ -149,12 +158,20 @@ Parser::ParseTemplateDeclarationOrSpecialization(unsigned Context,
   ParseScopeFlags TemplateScopeFlags(this, NewFlags, isSpecialization);
 
   // Parse the actual template declaration.
-  return ParseSingleDeclarationAfterTemplate(Context,
-                                             ParsedTemplateInfo(&ParamLists,
-                                                             isSpecialization,
-                                                         LastParamListWasEmpty),
-                                             ParsingTemplateParams,
-                                             DeclEnd, AS, AccessAttrs);
+  if (!TryConsumeToken(tok::kw_concept))
+    return ParseSingleDeclarationAfterTemplate(Context,
+                                               ParsedTemplateInfo(&ParamLists,
+                                                               isSpecialization,
+                                                           LastParamListWasEmpty),
+                                               ParsingTemplateParams,
+                                               DeclEnd, AS, AccessAttrs);
+
+  return ParseConceptDefinition(Context,
+                                ParsedTemplateInfo(&ParamLists,
+                                                isSpecialization,
+                                            LastParamListWasEmpty),
+                                ParsingTemplateParams,
+                                DeclEnd, AS, AccessAttrs);
 }
 
 /// \brief Parse a single declaration that declares a template,
@@ -319,6 +336,52 @@ Parser::ParseSingleDeclarationAfterTemplate(
     ParseLexedAttributeList(LateParsedAttrs, ThisDecl, true, false);
   DeclaratorInfo.complete(ThisDecl);
   return ThisDecl;
+}
+
+/// \brief Parse a single declaration that declares a concept.
+///
+/// \param DeclEnd will receive the source location of the last token
+/// within this declaration.
+///
+/// \param AS the access specifier associated with this
+/// declaration. Will be AS_none for namespace-scope declarations.
+///
+/// \returns the new declaration.
+Decl *
+Parser::ParseConceptDefinition(unsigned Context,
+                               const ParsedTemplateInfo &TemplateInfo,
+                               ParsingDeclRAIIObject &DiagsFromTParams,
+                               SourceLocation &DeclEnd,
+                               AccessSpecifier AS,
+                               AttributeList *AccessAttrs) {
+  assert(TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate &&
+         "Template information required");
+
+  if (!Tok.is(tok::identifier)) {
+    Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
+    return nullptr;
+  }
+
+  IdentifierInfo *Id = Tok.getIdentifierInfo();
+  SourceLocation IdLoc = ConsumeToken();
+
+  if (!TryConsumeToken(tok::equal)) {
+    Diag(Tok.getLocation(), diag::err_expected) << "equal";
+    return nullptr;
+  }
+
+  ExprResult ConstraintExprResult = ParseConstraintExpression();
+  if (ConstraintExprResult.isInvalid()) {
+    Diag(Tok.getLocation(), diag::err_expected_expression)
+      << "constraint-expression";
+    return nullptr;
+  }
+
+  ExpectAndConsumeSemi(diag::err_expected_semi_declaration);
+  Expr *ConstraintExpr = ConstraintExprResult.get();
+  return Actions.ActOnConceptDefinition(getCurScope(),
+                                        *TemplateInfo.TemplateParams,
+                                        Id, IdLoc, ConstraintExpr);
 }
 
 /// ParseTemplateParameters - Parses a template-parameter-list enclosed in

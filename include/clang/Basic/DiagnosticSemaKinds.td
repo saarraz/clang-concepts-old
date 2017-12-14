@@ -2368,7 +2368,7 @@ def warn_private_extern : Warning<
 def note_private_extern : Note<
   "use __attribute__((visibility(\"hidden\"))) attribute instead">;
 
-// C++ Concepts TS
+// C++ Concepts
 def err_concept_wrong_decl_kind : Error<
   "'concept' can only appear on the definition of a function template or variable template">;
 def err_concept_decls_may_only_appear_in_namespace_scope : Error<
@@ -2394,6 +2394,14 @@ def err_concept_specified_specialization : Error<
 def err_concept_specialized : Error<
   "%select{function|variable}0 concept cannot be "
   "%select{explicitly instantiated|explicitly specialized|partially specialized}1">;
+def err_concept_initialized_with_non_bool_type : Error<
+  "constraint expression must be 'bool' but found %0">;
+def err_concept_decls_may_only_appear_in_global_namespace_scope : Error<
+  "concept declarations may only appear in global or namespace scope">;
+def err_concept_extra_headers : Error<
+  "extraneous template parameter list in concept definition">;
+def err_concept_no_associated_constraints : Error<
+  "concept may not have associated constraints">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;

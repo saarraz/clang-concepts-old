@@ -1722,6 +1722,8 @@ DEF_TRAVERSE_TMPL_DECL(Class)
 DEF_TRAVERSE_TMPL_DECL(Var)
 DEF_TRAVERSE_TMPL_DECL(Function)
 
+DEF_TRAVERSE_DECL(ConceptDecl, {})
+
 DEF_TRAVERSE_DECL(TemplateTemplateParmDecl, {
   // D is the "T" in something like
   //   template <template <typename> class T> class container { };

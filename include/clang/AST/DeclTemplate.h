@@ -3032,6 +3032,46 @@ public:
   static bool classofKind(Kind K) { return K == VarTemplate; }
 };
 
+// \brief Definition of concept, not just declaration actually.
+class ConceptDecl : public TemplateDecl {
+protected:
+  Expr *ConstraintExpr;
+
+  ConceptDecl(DeclContext *DC,
+              SourceLocation L, DeclarationName Name,
+              TemplateParameterList *Params,
+              Expr *ConstraintExpr)
+      : TemplateDecl(nullptr, Concept, DC, L, Name, Params),
+        ConstraintExpr(ConstraintExpr) {};
+public:
+  static ConceptDecl *Create(ASTContext &C, DeclContext *DC,
+                             SourceLocation L, DeclarationName Name,
+                             TemplateParameterList *Params,
+                             Expr *ConstraintExpr);
+  static ConceptDecl *CreateDeserialized(ASTContext &C, unsigned ID);
+
+  Expr *getConstraintExpr() const {
+    return ConstraintExpr;
+  }
+
+  void setConstraintExpr(Expr *CE) {
+    ConstraintExpr = CE;
+  }
+
+  // TODO: Should do source range properly.
+  SourceRange getSourceRange() const override LLVM_READONLY {
+    return SourceRange(getLocation(), getLocation());
+  }
+
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Concept; }
+
+  friend class ASTReader;
+  friend class ASTDeclReader;
+  friend class ASTDeclWriter;
+};
+
 inline NamedDecl *getAsNamedDecl(TemplateParameter P) {
   if (auto *PD = P.dyn_cast<TemplateTypeParmDecl*>())
     return PD;

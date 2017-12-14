@@ -2784,6 +2784,14 @@ private:
                                    SourceLocation TemplateLoc,
                                    SourceLocation &DeclEnd,
                                    AccessSpecifier AS = AS_none);
+  // C++2a: Template, concept definition [temp]
+  Decl *
+  ParseConceptDefinition(unsigned Context,
+                         const ParsedTemplateInfo &TemplateInfo,
+                         ParsingDeclRAIIObject &DiagsFromTParams,
+                         SourceLocation &DeclEnd,
+                         AccessSpecifier AS,
+                         AttributeList *AccessAttrs);
 
   //===--------------------------------------------------------------------===//
   // Modules

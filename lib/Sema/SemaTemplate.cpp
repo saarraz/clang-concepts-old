@@ -232,9 +232,11 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
     } else {
       assert(isa<ClassTemplateDecl>(TD) || isa<TemplateTemplateParmDecl>(TD) ||
              isa<TypeAliasTemplateDecl>(TD) || isa<VarTemplateDecl>(TD) ||
-             isa<BuiltinTemplateDecl>(TD));
+             isa<BuiltinTemplateDecl>(TD) || isa<ConceptDecl>(TD));
       TemplateKind =
-          isa<VarTemplateDecl>(TD) ? TNK_Var_template : TNK_Type_template;
+          isa<VarTemplateDecl>(TD) ? TNK_Var_template :
+          isa<ConceptDecl>(TD) ? TNK_Concept_template :
+          TNK_Type_template;
     }
   }
 
@@ -2930,7 +2932,8 @@ QualType Sema::CheckTemplateIdType(TemplateName Name,
 
   TemplateDecl *Template = Name.getAsTemplateDecl();
   if (!Template || isa<FunctionTemplateDecl>(Template) ||
-      isa<VarTemplateDecl>(Template)) {
+      isa<VarTemplateDecl>(Template) ||
+      isa<ConceptDecl>(Template)) {
     // We might have a substituted template template parameter pack. If so,
     // build a template specialization type for it.
     if (Name.getAsSubstTemplateTemplateParmPack())
@@ -3884,6 +3887,18 @@ Sema::CheckVarTemplateId(const CXXScopeSpec &SS,
                                   /*FoundD=*/nullptr, TemplateArgs);
 }
 
+ExprResult
+Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
+                             const DeclarationNameInfo &NameInfo,
+                             ConceptDecl *Template,
+                             SourceLocation TemplateLoc,
+                             const TemplateArgumentListInfo *TemplateArgs) {
+  // TODO: Do more stuff here, caller expects constraint
+  // expression to be returned. Works for non-dependent bool
+  // constraint expressions right now.
+  return Template->getConstraintExpr();
+}
+
 ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
                                      SourceLocation TemplateKWLoc,
                                      LookupResult &R,
@@ -3905,12 +3920,19 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
 
   // In C++1y, check variable template ids.
   bool InstantiationDependent;
-  if (R.getAsSingle<VarTemplateDecl>() &&
-      !TemplateSpecializationType::anyDependentTemplateArguments(
-           *TemplateArgs, InstantiationDependent)) {
+  bool DependentArguments =
+    TemplateSpecializationType::anyDependentTemplateArguments(
+      *TemplateArgs, InstantiationDependent);
+  if (R.getAsSingle<VarTemplateDecl>() && !DependentArguments) {
     return CheckVarTemplateId(SS, R.getLookupNameInfo(),
                               R.getAsSingle<VarTemplateDecl>(),
                               TemplateKWLoc, TemplateArgs);
+  }
+
+  if (R.getAsSingle<ConceptDecl>() && !DependentArguments) {
+    return CheckConceptTemplateId(SS, R.getLookupNameInfo(),
+                                  R.getAsSingle<ConceptDecl>(),
+                                  TemplateKWLoc, TemplateArgs);
   }
 
   // We don't want lookup warnings at this point.
@@ -7660,6 +7682,57 @@ Decl *Sema::ActOnTemplateDeclarator(Scope *S,
                                     Declarator &D) {
   Decl *NewDecl = HandleDeclarator(S, D, TemplateParameterLists);
   ActOnDocumentableDecl(NewDecl);
+  return NewDecl;
+}
+
+#include <iostream>
+using namespace std;
+Decl *Sema::ActOnConceptDefinition(Scope *S,
+                              MultiTemplateParamsArg TemplateParameterLists,
+                                   IdentifierInfo *Name, SourceLocation L,
+                                   Expr *ConstraintExpr) {
+  DeclContext *DC = CurContext;
+
+  if (!DC->isFileContext()) {
+    Diag(L,
+      diag::err_concept_decls_may_only_appear_in_global_namespace_scope);
+    return nullptr;
+  }
+
+  if (TemplateParameterLists.size() != 1) {
+    Diag(L, diag::err_concept_extra_headers);
+    return nullptr;
+  }
+
+  ConceptDecl *NewDecl = ConceptDecl::Create(Context, DC, L, Name,
+                                             TemplateParameterLists[0],
+                                             ConstraintExpr);
+  if (!NewDecl)
+    return nullptr;
+
+  if (!ConstraintExpr->isTypeDependent() &&
+      ConstraintExpr->getType() != Context.BoolTy) {
+    // C++2a [temp.constr.atomic]p3:
+    // E shall be a constant expression of type bool.
+    // TODO: Do this check for individual atomic constraints
+    // and not the constraint expression. Probably should do it in
+    // ParseConstraintExpression.
+    Diag(ConstraintExpr->getSourceRange().getBegin(),
+        diag::err_concept_initialized_with_non_bool_type)
+      << ConstraintExpr->getType();
+    NewDecl->setInvalidDecl();
+  }
+
+  if (NewDecl->getAssociatedConstraints()) {
+    // C++2a [temp.concept]p4:
+    // A concept shall not have associated constraints.
+    // TODO: Make a test once we have actual associated constraints.
+    Diag(L, diag::err_concept_no_associated_constraints);
+    NewDecl->setInvalidDecl();
+  }
+
+  ActOnDocumentableDecl(NewDecl);
+  CurContext->addDecl(NewDecl);
   return NewDecl;
 }
 
