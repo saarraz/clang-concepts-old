@@ -15,6 +15,7 @@
 #ifndef LLVM_CLANG_AST_EXPRCXX_H
 #define LLVM_CLANG_AST_EXPRCXX_H
 
+#include "clang/Sema/SemaConcept.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
@@ -4415,6 +4416,9 @@ public:
 /// According to C++2a [expr.prim.id]p3 an id-expression that denotes the
 /// specialization of a concept results in a prvalue of type bool.
 class ConceptSpecializationExpr final : public Expr {
+public:
+  using SubstitutionDiagnostic = std::pair<SourceLocation, std::string>;
+
 protected:
   /// \brief The concept named.
   ConceptDecl *NamedConcept;
@@ -4426,11 +4430,10 @@ protected:
   /// \brief The location of the concept name in the expression.
   SourceLocation ConceptNameLoc;
 
-  /// \brief Whether or not the concept with the given arguments was satisfied
-  /// when the expression was created. If any of the template arguments are
-  /// dependent (this expr would then be isValueDependent()), this is to be
+  /// \brief Information about the satisfaction of the named concept with the
+  /// given arguments. If this expression is value dependent, this is to be
   /// ignored.
-  bool IsSatisfied : 1;
+  ConstraintSatisfaction Satisfaction;
 
 public:
   ConceptSpecializationExpr(ASTContext &C, Sema &S,
@@ -4463,20 +4466,29 @@ public:
                             const TemplateArgumentListInfo *TALI);
 
   /// \brief Whether or not the concept with the given arguments was satisfied
-  /// when the expression was created. This method assumes that the expression
-  /// is not dependent!
+  /// when the expression was created.
+  /// The expression must not be dependent.
   bool isSatisfied() const {
     assert(!isValueDependent()
            && "isSatisfied called on a dependent ConceptSpecializationExpr");
-    return IsSatisfied;
+    return Satisfaction.IsSatisfied;
   }
 
-  void setSatisfied(bool Satisfied) {
-    IsSatisfied = Satisfied;
+  /// \brief Get elaborated satisfaction info about the template arguments'
+  /// satisfaction of the named concept.
+  /// The expression must not be dependent.
+  const ConstraintSatisfaction &getSatisfaction() const {
+    assert(!isValueDependent()
+           && "getSatisfaction called on dependent ConceptSpecializationExpr");
+    return Satisfaction;
+  }
+
+  void setSatisfaction(ConstraintSatisfaction Satisfaction) {
+    this->Satisfaction = std::move(Satisfaction);
   }
 
   SourceLocation getConceptNameLoc() const { return ConceptNameLoc; }
-  void setConceptNameLoc(SourceLocation Loc) {
+    void setConceptNameLoc(SourceLocation Loc) {
     ConceptNameLoc = Loc;
   }
 

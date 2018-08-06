@@ -2402,12 +2402,31 @@ def err_concept_extra_headers : Error<
 def err_concept_no_associated_constraints : Error<
   "concept may not have associated constraints">;
 def err_non_constant_constraint_expression : Error<
-  "substitution into constraint expression resulted in a non-constant "
-  "expression '%0'">;
+  "substitution into constraint expression resulted in a non-constant expression '%0'">;
 def err_non_bool_atomic_constraint : Error<
   "atomic constraint '%0' must be of type 'bool' (found %1)">;
 def note_in_concept_specialization : Note<
   "in concept specialization '%0'">;
+def err_template_arg_list_constraints_not_satisfied : Error<
+  "constraints not satisfied for %select{class template|function template|variable template|alias template|"
+  "template template parameter|template}0 %1%2">;
+def note_constraints_not_satisfied : Note<
+  "constraints not satisfied">;
+def note_substituted_constraint_expr_is_ill_formed : Note<
+  "because substituted constraint expression is ill-formed%0">;
+def note_atomic_constraint_evaluated_to_false : Note<
+  "%select{and |because }0'%1' evaluated to false">;
+def note_concept_specialization_constraint_evaluated_to_false : Note<
+  "%select{and |because }0'%1' evaluated to false">;
+def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
+  "%select{and |because }0%1 does not satisfy %2">;
+def note_atomic_constraint_evaluated_to_false_elaborated : Note<
+  "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
+def err_could_not_normalize_ill_formed_constraint : Error<
+  "required expansion of concept specialization %0 failed, substituted "
+  "expression would be illegal">;
+def note_could_not_normalize_ill_formed_constraint_reason : Note<
+  "because: %0">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
@@ -3541,6 +3560,8 @@ def note_ovl_candidate_inconsistent_deduction_types : Note<
 def note_ovl_candidate_explicit_arg_mismatch_named : Note<
     "candidate template ignored: invalid explicitly-specified argument "
     "for template parameter %0">;
+def note_ovl_candidate_unsatisfied_constraints : Note<
+    "candidate template ignored: constraints not satisfied%0">;
 def note_ovl_candidate_explicit_arg_mismatch_unnamed : Note<
     "candidate template ignored: invalid explicitly-specified argument "
     "for %ordinal0 template parameter">;

@@ -350,7 +350,24 @@ void ASTStmtWriter::VisitConceptSpecializationExpr(
   Record.AddDeclRef(E->getNamedConcept());
   Record.AddSourceLocation(E->getConceptNameLoc());
   Record.AddASTTemplateArgumentListInfo(E->getTemplateArgumentListInfo());
-  Record.push_back(E->isSatisfied());
+  const ConstraintSatisfaction &Satisfaction = E->getSatisfaction();
+  Record.push_back(Satisfaction.IsSatisfied);
+  if (!Satisfaction.IsSatisfied) {
+    Record.push_back(Satisfaction.Details.size());
+    for (const auto &DetailRecord : Satisfaction.Details) {
+      Record.AddStmt(const_cast<Expr *>(DetailRecord.first));
+      auto *Diag =
+          DetailRecord.second
+              .dyn_cast<ConstraintSatisfaction::SubstitutionDiagnostic *>();
+      Record.push_back(Diag != nullptr);
+      if (Diag) {
+        Record.AddSourceLocation(Diag->first);
+        Record.AddString(Diag->second);
+      } else
+        Record.AddStmt(DetailRecord.second.get<Expr *>());
+    }
+  }
+
   Code = serialization::EXPR_CONCEPT_SPECIALIZATION;
 }
 

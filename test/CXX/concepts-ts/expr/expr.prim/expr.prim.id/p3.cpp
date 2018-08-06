@@ -26,7 +26,7 @@ struct B {
 template<typename U>
 concept C4 = U::add(1, 2) == 3; // expected-error {{substitution into constraint expression resulted in a non-constant expression 'B::add(1, 2) == 3'}}
 static_assert(C4<A>);
-static_assert(!C4<B>); // expected-note {{in concept specialization 'C4<B>'}}
+static bool X = C4<B>; // expected-note {{in concept specialization 'C4<B>'}}
 
 template<typename T, typename U>
 constexpr bool is_same_v = false;
@@ -67,6 +67,15 @@ template<typename T> struct T2 { static constexpr bool value = sizeof(T) == 2; }
 
 static_assert(IsTypePredicate<T2>);
 static_assert(!IsTypePredicate<T1>);
+
+template<typename T, typename U, typename... Ts>
+concept OneOf = (Same<T, Ts> || ...);
+
+template<typename... X>
+constexpr bool S = OneOf<X..., int, int>;
+
+static_assert(S<int, long, int>);
+static_assert(!S<long, int, char, char>);
 
 namespace piecewise_substitution {
   template <typename T>

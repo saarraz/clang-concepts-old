@@ -2658,6 +2658,21 @@ static Sema::TemplateDeductionResult FinishTemplateArgumentDeduction(
   return Sema::TDK_Success;
 }
 
+template<typename TemplateDeclT>
+static Sema::TemplateDeductionResult
+CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
+                                ArrayRef<TemplateArgument> DeducedArgs,
+                                TemplateDeductionInfo& Info) {
+  if (S.CheckConstraintSatisfaction(Template,
+                                    Template->getAssociatedConstraints(),
+                                    DeducedArgs, Info.getLocation(),
+                                    Info.AssociatedConstraintsSatisfaction)
+      || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
+    Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
+    return Sema::TDK_ConstraintsNotSatisfied;
+  }
+  return Sema::TDK_Success;
+}
 
 /// \brief Perform template argument deduction to determine whether
 /// the given template arguments match the given class template
@@ -2697,6 +2712,10 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
 
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
+
+  if (TemplateDeductionResult Result
+        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
+    return Result;
 
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
@@ -2738,6 +2757,10 @@ Sema::DeduceTemplateArguments(VarTemplatePartialSpecializationDecl *Partial,
 
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
+
+  if (TemplateDeductionResult Result
+        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
+    return Result;
 
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
@@ -2847,6 +2870,12 @@ Sema::SubstituteExplicitTemplateArguments(
   TemplateArgumentList *ExplicitArgumentList
     = TemplateArgumentList::CreateCopy(Context, Builder);
   Info.reset(ExplicitArgumentList);
+
+  if (TemplateDeductionResult Result
+        = CheckDeducedArgumentConstraints(*this, FunctionTemplate,
+                                          ExplicitArgumentList->asArray(),
+                                          Info))
+    return Result;
 
   // Template argument deduction and the final substitution should be
   // done in the context of the templated declaration.  Explicit
@@ -3153,6 +3182,11 @@ Sema::TemplateDeductionResult Sema::FinishTemplateArgumentDeduction(
           *this, FunctionTemplate, /*IsDeduced*/true, Deduced, Info, Builder,
           CurrentInstantiationScope, NumExplicitlySpecified,
           PartialOverloading))
+    return Result;
+
+  if (TemplateDeductionResult Result
+        = CheckDeducedArgumentConstraints(*this, FunctionTemplate, DeducedArgs,
+                                          Info))
     return Result;
 
   // C++ [temp.deduct.call]p10: [DR1391]
@@ -4911,6 +4945,7 @@ template<typename TemplateLikeDecl>
 static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
                                      TemplateLikeDecl *P2,
                                      TemplateDeductionInfo &Info) {
+  // TODO: Concepts: Regard constraints
   // C++ [temp.class.order]p1:
   //   For two class template partial specializations, the first is at least as
   //   specialized as the second if, given the following rewrite to two

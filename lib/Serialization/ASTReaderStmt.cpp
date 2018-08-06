@@ -621,7 +621,24 @@ void ASTStmtReader::VisitConceptSpecializationExpr(
   for (const TemplateArgumentLoc &Arg : Info->arguments())
     TALI.addArgument(Arg);
   E->setTemplateArguments(Record.getContext(), /*Sema=*/nullptr, &TALI);
-  E->setSatisfied(Record.readInt() == 1);
+  ConstraintSatisfaction Satisfaction;
+  Satisfaction.IsSatisfied = Record.readInt();
+  if (!Satisfaction.IsSatisfied) {
+    unsigned NumDetailRecords = Record.readInt();
+    for (unsigned i = 0; i != NumDetailRecords; ++i) {
+      Expr *ConstraintExpr = Record.readExpr();
+      bool IsDiagnostic = Record.readInt();
+      if (IsDiagnostic) {
+        SourceLocation DiagLocation = Record.readSourceLocation();
+        std::string DiagMessage = Record.readString();
+        Satisfaction.Details.emplace_back(
+            ConstraintExpr, new (Record.getContext())
+                                ConstraintSatisfaction::SubstitutionDiagnostic{
+                                    DiagLocation, DiagMessage});
+      } else
+        Satisfaction.Details.emplace_back(ConstraintExpr, Record.readExpr());
+    }
+  }
 }
 
 void ASTStmtReader::VisitArraySubscriptExpr(ArraySubscriptExpr *E) {

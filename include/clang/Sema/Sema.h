@@ -37,6 +37,7 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TemplateKinds.h"
 #include "clang/Basic/TypeTraits.h"
+#include "clang/Sema/SemaConcept.h"
 #include "clang/Sema/AnalysisBasedWarnings.h"
 #include "clang/Sema/CleanupInfo.h"
 #include "clang/Sema/DeclSpec.h"
@@ -5577,14 +5578,72 @@ public:
                                   ConceptDecl *CD,
                                   const TemplateArgumentListInfo *TALI);
 
-  /// Check whether the given expression is a valid constraint expression.
-  /// A diagnostic is emitted if it is not, and false is returned.
+  /// \brief Check whether the given expression is a valid constraint
+  /// expression. A diagnostic is emitted if it is not, and false is returned.
   bool CheckConstraintExpression(Expr *CE);
+
+
+  /// \brief Check whether the given constraint expression is satisfied given
+  /// template arguments. Returns false and updates IsSatisfied with the
+  /// satisfaction verdict if successful, emits a diagnostic and returns true if
+  /// an error occured and satisfaction could not be determined.
+  ///
+  /// \param SubstitutedExpr if not null, will be used to return the substituted
+  /// constraint expression (to be used for diagnostics, for example).
+  ///
+  /// \param SubstDiag if the constraint was not satisfied because of a
+  /// substitution failure, this will contain the emitted diagnostics, if any.
+  ///
+  /// \returns true if an error occurred, false otherwise.
+  bool CheckConstraintSatisfaction(TemplateDecl *Template,
+                                   const Expr *ConstraintExpr,
+                                   ArrayRef<TemplateArgument> TemplateArgs,
+                                   SourceLocation TemplateNameLoc,
+                                   ConstraintSatisfaction &Satisfaction);
+
+  bool CheckConstraintSatisfaction(ClassTemplatePartialSpecializationDecl *TD,
+                                   const Expr *ConstraintExpr,
+                                   ArrayRef<TemplateArgument> TemplateArgs,
+                                   SourceLocation TemplateNameLoc,
+                                   ConstraintSatisfaction &Satisfaction);
+
+  bool CheckConstraintSatisfaction(VarTemplatePartialSpecializationDecl *TD,
+                                   const Expr *ConstraintExpr,
+                                   ArrayRef<TemplateArgument> TemplateArgs,
+                                   SourceLocation TemplateNameLoc,
+                                   ConstraintSatisfaction &Satisfaction);
 
   /// \brief Check that the associated constraints of a template declaration
   /// match the associated constraints of an older declaration of which it is a
   /// redeclaration
   bool CheckRedeclarationConstraintMatch(const Expr *OldAC, const Expr *NewAC);
+
+  /// \brief Ensure that the given template arguments satisfy the constraints
+  /// associated with the given template, emitting a diagnostic if they do not.
+  ///
+  /// \param Template The template to which the template arguments are being
+  /// provided.
+  ///
+  /// \param TemplateArgs The converted, canonicalized template arguments.
+  ///
+  /// \param TemplateNameLoc Where was the template name that evoked this
+  /// constraints check.
+  ///
+  /// \returns true if the constrains are not satisfied or could not be checked
+  /// for satisfaction, false if the constraints are satisfied.
+  bool EnsureTemplateArgumentListConstraints(TemplateDecl *Template,
+                                       ArrayRef<TemplateArgument> TemplateArgs,
+                                             SourceLocation TemplateNameLoc);
+
+  /// \brief Emit diagnostics explaining why a constraint expression was deemed
+  /// unsatisfied.
+  void
+  DiagnoseUnsatisfiedConstraint(const ConstraintSatisfaction& Satisfaction);
+
+  /// \brief Emit diagnostics explaining why a constraint expression was deemed
+  /// unsatisfied because it was ill-formed.
+  void DiagnoseUnsatisfiedIllFormedConstraint(SourceLocation DiagnosticLocation,
+                                              StringRef Diagnostic);
 
   // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,
@@ -6352,13 +6411,19 @@ public:
   /// contain the converted forms of the template arguments as written.
   /// Otherwise, \p TemplateArgs will not be modified.
   ///
+  /// \param InstantiationDependent If provided, and no error occured, will
+  /// receive true if the arguments' match to the given template is
+  /// instantiation dependant - e.g. the arguments contain a pack expansion
+  /// into a non pack parameter.
+  ///
   /// \returns true if an error occurred, false otherwise.
   bool CheckTemplateArgumentList(TemplateDecl *Template,
                                  SourceLocation TemplateLoc,
                                  TemplateArgumentListInfo &TemplateArgs,
                                  bool PartialTemplateArgs,
                                  SmallVectorImpl<TemplateArgument> &Converted,
-                                 bool UpdateArgsWithConversions = true);
+                                 bool UpdateArgsWithConversions = true,
+                                 bool *InstantiationDependent = nullptr);
 
   bool CheckTemplateTypeArgument(TemplateTypeParmDecl *Param,
                                  TemplateArgumentLoc &Arg,
@@ -6900,6 +6965,9 @@ public:
     TDK_InvalidExplicitArguments,
     /// \brief Checking non-dependent argument conversions failed.
     TDK_NonDependentConversionFailure,
+    /// \brief The deduced arguments did not satisfy the constraints associated
+    /// with the template.
+    TDK_ConstraintsNotSatisfied,
     /// \brief Deduction failed; that's all we know.
     TDK_MiscellaneousDeductionFailure,
     /// \brief CUDA Target attributes do not match.

@@ -1530,30 +1530,25 @@ bool ConceptSpecializationExpr::setTemplateArguments(ASTContext &C, Sema *S,
   setValueDependent(IsDependent);
   setInstantiationDependent(IsDependent);
   setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
-  if (IsDependent || !S)
+  if (!S || IsDependent)
+    // !S means the expression is probably being read from a module file.
     return false;
 
   llvm::SmallVector<TemplateArgument, 4> Converted;
-  if (S->CheckTemplateArgumentList(NamedConcept, NamedConcept->getLocStart(),
-                                  const_cast<TemplateArgumentListInfo&>(*TALI),
-                                  /*PartialTemplateArgs=*/false, Converted,
-                                  /*UpdateArgsWithConversion=*/false))
+  if (S->CheckTemplateArgumentList(NamedConcept,
+                                   NamedConcept->getLocStart(),
+                                   const_cast<TemplateArgumentListInfo&>(*TALI),
+                                   /*PartialTemplateArgs=*/false, Converted,
+                                   /*UpdateArgsWithConversion=*/false))
     // We converted these arguments back in CheckConceptTemplateId, this should
     // work.
     return true;
 
-  MultiLevelTemplateArgumentList MLTAL;
-  MLTAL.addOuterTemplateArguments(Converted);
-
-  bool IsSatisfied;
-  if (calculateConstraintSatisfaction(*S, MLTAL,
-                                      NamedConcept->getConstraintExpr(),
-                                      IsSatisfied)) {
-    S->Diag(getLocStart(),
-            diag::note_in_concept_specialization) << this;
+  if (S->CheckConstraintSatisfaction(NamedConcept,
+                                     NamedConcept->getConstraintExpr(),
+                                     Converted, ConceptNameLoc, Satisfaction)) {
+    S->Diag(getLocStart(), diag::note_in_concept_specialization) << this;
     return true;
   }
-
-  this->IsSatisfied = IsSatisfied;
   return false;
 }
