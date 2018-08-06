@@ -1217,6 +1217,11 @@ void ASTDumper::VisitFunctionDecl(const FunctionDecl *D) {
     }
   }
 
+  if (const Expr *RequiresClause = D->getTrailingRequiresClause()) {
+    OS << " requires ";
+    dumpStmt(RequiresClause);
+  }
+
   if (D->doesThisDeclarationHaveABody())
     dumpStmt(D->getBody());
 }

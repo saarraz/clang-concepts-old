@@ -613,6 +613,10 @@ namespace clang {
     /// This inherited constructor is not viable because it would slice the
     /// argument.
     ovl_fail_inhctor_slice,
+
+    /// This candidate was not viable because its associated constraints were
+    /// not satisfied.
+    ovl_fail_constraints_not_satisfied
   };
 
   /// A list of implicit conversion sequences for the arguments of an

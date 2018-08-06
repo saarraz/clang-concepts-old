@@ -5925,7 +5925,8 @@ void Parser::ParseParenDeclarator(Declarator &D) {
 ///
 /// For C++, after the parameter-list, it also parses the cv-qualifier-seq[opt],
 /// (C++11) ref-qualifier[opt], exception-specification[opt],
-/// (C++11) attribute-specifier-seq[opt], and (C++11) trailing-return-type[opt].
+/// (C++11) attribute-specifier-seq[opt], (C++11) trailing-return-type[opt] and
+/// (C++2a) the trailing requires-clause.
 ///
 /// [C++11] exception-specification:
 ///           dynamic-exception-specification
@@ -5963,6 +5964,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   CachedTokens *ExceptionSpecTokens = nullptr;
   ParsedAttributesWithRange FnAttrs(AttrFactory);
   TypeResult TrailingReturnType;
+  ExprResult TrailingRequiresClause;
 
   /* LocalEndLoc is the end location for the local FunctionTypeLoc.
      EndLoc is the end location for the function declarator.
@@ -6084,7 +6086,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
       // Parse trailing-return-type[opt].
       LocalEndLoc = EndLoc;
-      if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
+      auto ParseTrailingReturn = [&] {
         Diag(Tok, diag::warn_cxx98_compat_trailing_return_type);
         if (D.getDeclSpec().getTypeSpecType() == TST_auto)
           StartLoc = D.getDeclSpec().getTypeSpecTypeLoc();
@@ -6092,6 +6094,75 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         SourceRange Range;
         TrailingReturnType = ParseTrailingReturnType(Range);
         EndLoc = Range.getEnd();
+      };
+      if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
+        ParseTrailingReturn();
+      }
+      // Parse trailing requires-clause[opt].
+      if (getLangOpts().ConceptsTS && Tok.is(tok::kw_requires)) {
+        LocalEndLoc = Tok.getLocation();
+        ConsumeToken();
+
+        TentativeParsingAction TPA(*this);
+        DiagnosticErrorTrap Trap(Diags);
+        Diags.setSuppressAllDiagnostics(true);
+        TrailingRequiresClause = ParseConstraintExpression();
+        Diags.setSuppressAllDiagnostics(false);
+
+        if (!Trap.hasErrorOccurred() && TrailingRequiresClause.isUsable()
+            && !TrailingRequiresClause.isInvalid()) {
+          TPA.Commit();
+          EndLoc = TrailingRequiresClause.get()->getLocEnd();
+
+          // Did the user swap the trailing return type and requires clause?
+          if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
+            Diag(Tok, diag::err_requires_clause_must_come_after_trailing_return);
+            // Parse it anyway
+            ParseTrailingReturn();
+          }
+          if (!D.isFunctionDeclaratorAFunctionDeclaration()) {
+            Diag(LocalEndLoc,
+              diag::err_requires_clause_on_declarator_not_declaring_a_function);
+          }
+
+        } else {
+          // Did the user swap the trailing return type and requires clause?
+          SourceLocation FailureLocation = Tok.getLocation();
+          TPA.Revert();
+          TentativeParsingAction SwapTPA(*this);
+          bool Found = false;
+          while (true) {
+            if (Tok.is(tok::arrow)) {
+              SourceLocation ArrowLoc = Tok.getLocation();
+              TentativeParsingAction TPA(*this);
+              bool PrevSuppress = Diags.getSuppressAllDiagnostics();
+              Diags.setSuppressAllDiagnostics(true);
+              ParseTrailingReturn();
+              Diags.setSuppressAllDiagnostics(PrevSuppress);
+
+              if (TrailingReturnType.isUsable()
+                  && !TrailingReturnType.isInvalid()) {
+                SwapTPA.Commit();
+                TPA.Commit();
+                Diag(ArrowLoc,
+                     diag::err_requires_clause_must_come_after_trailing_return);
+                EndLoc = Tok.getLocation();
+                Found = true;
+                break;
+              }
+              TPA.Revert();
+            }
+            if (Tok.getLocation() == FailureLocation)
+              break;
+            ConsumeAnyToken();
+          }
+          if (!Found) {
+            SwapTPA.Revert();
+            // User did not swap a trailing return and a trailing requires clause.
+            // Re-parse the thing and display the original error message.
+            ParseConstraintExpression();
+          }
+        }
       }
     } else if (standardAttributesAllowed()) {
       MaybeParseCXX11Attributes(FnAttrs);
@@ -6134,7 +6205,9 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                              ExceptionSpecTokens,
                                              DeclsInPrototype,
                                              StartLoc, LocalEndLoc, D,
-                                             TrailingReturnType),
+                                             TrailingReturnType,
+                                             TrailingRequiresClause.isUsable() ?
+                                        TrailingRequiresClause.get() : nullptr),
                 FnAttrs, EndLoc);
 }
 

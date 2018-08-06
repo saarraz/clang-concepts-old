@@ -1329,6 +1329,11 @@ struct DeclaratorChunk {
     /// type specified.
     UnionParsedType TrailingReturnType;
 
+    /// \brief The constraint-expression specified by the trailing
+    /// requires-clause, or null if no such clause was specified.
+    Expr *TrailingRequiresClause;
+
+
     /// \brief Reset the parameter list to having zero parameters.
     ///
     /// This is used in various places for error recovery.
@@ -1447,6 +1452,15 @@ struct DeclaratorChunk {
 
     /// \brief Get the trailing-return-type for this function declarator.
     ParsedType getTrailingReturnType() const { return TrailingReturnType; }
+
+    /// \brief Determine whether this function declarator had a
+    /// trailing requires-clause.
+    bool hasTrailingRequiresClause() const { return TrailingRequiresClause; }
+
+    /// \brief Get the trailing requires-clause for this function declarator.
+    Expr *getTrailingRequiresClause() const {
+      return TrailingRequiresClause;
+    }
   };
 
   struct BlockPointerTypeInfo : TypeInfoCommon {
@@ -1591,7 +1605,8 @@ struct DeclaratorChunk {
                                      SourceLocation LocalRangeEnd,
                                      Declarator &TheDeclarator,
                                      TypeResult TrailingReturnType =
-                                                    TypeResult());
+                                                    TypeResult(),
+                                     Expr *TrailingRequiresClause = nullptr);
 
   /// \brief Return a DeclaratorChunk for a block.
   static DeclaratorChunk getBlockPointer(unsigned TypeQuals,
@@ -2343,6 +2358,16 @@ public:
     for (const auto &Chunk : type_objects())
       if (Chunk.Kind == DeclaratorChunk::Function &&
           Chunk.Fun.hasTrailingReturnType())
+        return true;
+    return false;
+  }
+
+  /// \brief Determine whether a trailing requires clause was written (at any
+  /// level) within this declarator.
+  bool hasTrailingRequiresClause() const {
+    for (const auto &Chunk : type_objects())
+      if (Chunk.Kind == DeclaratorChunk::Function &&
+          Chunk.Fun.hasTrailingRequiresClause())
         return true;
     return false;
   }

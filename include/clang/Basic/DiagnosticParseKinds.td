@@ -278,6 +278,10 @@ def err_init_list_bin_op : Error<"initializer list cannot be used on the "
 def warn_cxx98_compat_trailing_return_type : Warning<
   "trailing return types are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def err_requires_clause_must_come_after_trailing_return : Error<
+  "trailing return type must come before trailing requires clause">;
+def err_requires_clause_on_declarator_not_declaring_a_function : Error<
+  "trailing requires clause can only be used when declaring a function">;
 def ext_auto_storage_class : ExtWarn<
   "'auto' storage class specifier is not permitted in C++11, and will not "
   "be supported in future releases">, InGroup<DiagGroup<"auto-storage-class">>;

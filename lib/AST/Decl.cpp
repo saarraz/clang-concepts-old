@@ -4211,10 +4211,12 @@ FunctionDecl *FunctionDecl::Create(ASTContext &C, DeclContext *DC,
                                    StorageClass SC,
                                    bool isInlineSpecified,
                                    bool hasWrittenPrototype,
-                                   bool isConstexprSpecified) {
+                                   bool isConstexprSpecified,
+                                   Expr *TrailingRequiresClause) {
   FunctionDecl *New =
       new (C, DC) FunctionDecl(Function, C, DC, StartLoc, NameInfo, T, TInfo,
-                               SC, isInlineSpecified, isConstexprSpecified);
+                               SC, isInlineSpecified, isConstexprSpecified,
+                               TrailingRequiresClause);
   New->HasWrittenPrototype = hasWrittenPrototype;
   return New;
 }
@@ -4222,7 +4224,7 @@ FunctionDecl *FunctionDecl::Create(ASTContext &C, DeclContext *DC,
 FunctionDecl *FunctionDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) FunctionDecl(Function, C, nullptr, SourceLocation(),
                                   DeclarationNameInfo(), QualType(), nullptr,
-                                  SC_None, false, false);
+                                  SC_None, false, false, nullptr);
 }
 
 BlockDecl *BlockDecl::Create(ASTContext &C, DeclContext *DC, SourceLocation L) {

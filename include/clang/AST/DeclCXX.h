@@ -1969,9 +1969,10 @@ protected:
                 SourceLocation StartLoc, const DeclarationNameInfo &NameInfo,
                 QualType T, TypeSourceInfo *TInfo,
                 StorageClass SC, bool isInline,
-                bool isConstexpr, SourceLocation EndLocation)
+                bool isConstexpr, SourceLocation EndLocation,
+                Expr *TrailingRequiresClause = nullptr)
     : FunctionDecl(DK, C, RD, StartLoc, NameInfo, T, TInfo,
-                   SC, isInline, isConstexpr) {
+                   SC, isInline, isConstexpr, TrailingRequiresClause) {
     if (EndLocation.isValid())
       setRangeEnd(EndLocation);
   }
@@ -1984,7 +1985,8 @@ public:
                                StorageClass SC,
                                bool isInline,
                                bool isConstexpr,
-                               SourceLocation EndLocation);
+                               SourceLocation EndLocation,
+                               Expr *TrailingRequiresClause = nullptr);
 
   static CXXMethodDecl *CreateDeserialized(ASTContext &C, unsigned ID);
 
@@ -2413,9 +2415,11 @@ class CXXConstructorDecl final
                      QualType T, TypeSourceInfo *TInfo,
                      bool isExplicitSpecified, bool isInline,
                      bool isImplicitlyDeclared, bool isConstexpr,
-                     InheritedConstructor Inherited)
+                     InheritedConstructor Inherited,
+                     Expr *TrailingRequiresClause = nullptr)
     : CXXMethodDecl(CXXConstructor, C, RD, StartLoc, NameInfo, T, TInfo,
-                    SC_None, isInline, isConstexpr, SourceLocation()),
+                    SC_None, isInline, isConstexpr, SourceLocation(),
+                    TrailingRequiresClause),
       NumCtorInitializers(0), IsInheritingConstructor((bool)Inherited) {
     setImplicit(isImplicitlyDeclared);
     if (Inherited)
@@ -2437,7 +2441,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          bool isExplicit, bool isInline, bool isImplicitlyDeclared,
          bool isConstexpr,
-         InheritedConstructor Inherited = InheritedConstructor());
+         InheritedConstructor Inherited = InheritedConstructor(),
+         Expr *TrailingRequiresClause = nullptr);
 
   /// \brief Iterates through the member/base initializer list.
   using init_iterator = CXXCtorInitializer **;
@@ -2629,9 +2634,11 @@ class CXXDestructorDecl : public CXXMethodDecl {
   CXXDestructorDecl(ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
                     const DeclarationNameInfo &NameInfo,
                     QualType T, TypeSourceInfo *TInfo,
-                    bool isInline, bool isImplicitlyDeclared)
+                    bool isInline, bool isImplicitlyDeclared,
+                    Expr *TrailingRequiresClause = nullptr)
     : CXXMethodDecl(CXXDestructor, C, RD, StartLoc, NameInfo, T, TInfo,
-                    SC_None, isInline, /*isConstexpr=*/false, SourceLocation())
+                    SC_None, isInline, /*isConstexpr=*/false, SourceLocation(),
+                    TrailingRequiresClause)
   {
     setImplicit(isImplicitlyDeclared);
   }
@@ -2644,7 +2651,8 @@ public:
                                    const DeclarationNameInfo &NameInfo,
                                    QualType T, TypeSourceInfo* TInfo,
                                    bool isInline,
-                                   bool isImplicitlyDeclared);
+                                   bool isImplicitlyDeclared,
+                                   Expr *TrailingRequiresClause = nullptr);
   static CXXDestructorDecl *CreateDeserialized(ASTContext & C, unsigned ID);
 
   void setOperatorDelete(FunctionDecl *OD, Expr *ThisArg);
@@ -2684,9 +2692,11 @@ class CXXConversionDecl : public CXXMethodDecl {
                     const DeclarationNameInfo &NameInfo, QualType T,
                     TypeSourceInfo *TInfo, bool isInline,
                     bool isExplicitSpecified, bool isConstexpr,
-                    SourceLocation EndLocation)
+                    SourceLocation EndLocation,
+                    Expr *TrailingRequiresClause = nullptr)
       : CXXMethodDecl(CXXConversion, C, RD, StartLoc, NameInfo, T, TInfo,
-                      SC_None, isInline, isConstexpr, EndLocation) {
+                      SC_None, isInline, isConstexpr, EndLocation,
+                      TrailingRequiresClause) {
     IsExplicitSpecified = isExplicitSpecified;
   }
 
@@ -2702,7 +2712,8 @@ public:
                                    QualType T, TypeSourceInfo *TInfo,
                                    bool isInline, bool isExplicit,
                                    bool isConstexpr,
-                                   SourceLocation EndLocation);
+                                   SourceLocation EndLocation,
+                                   Expr *TrailingRequiresClause = nullptr);
   static CXXConversionDecl *CreateDeserialized(ASTContext &C, unsigned ID);
 
   /// Whether this function is marked as explicit explicitly.

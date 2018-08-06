@@ -2429,6 +2429,10 @@ def note_could_not_normalize_argument_substitution_failed : Note<
 def note_could_not_normalize_unmatched_argument_list_after_subst : Note<
   "could not substitute template arguments into %0 %1 - the resulting template "
   "argument list does not match the concept's parameter list">;
+def err_constrained_virtual_method : Error<
+  "a virtual function must not have a requires clause">;
+def err_reference_to_function_with_unsatisfied_constraints : Error<
+  "invalid reference to function %0 - constraints not satisfied">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
@@ -3592,6 +3596,9 @@ def note_ovl_candidate_disabled_by_extension : Note<
 def err_addrof_function_disabled_by_enable_if_attr : Error<
     "cannot take address of function %0 because it has one or more "
     "non-tautological enable_if conditions">;
+def err_addrof_function_constraints_not_satisfied : Error<
+    "cannot take address of function %0 because its constraints are not "
+    "satisfied">;
 def note_addrof_ovl_candidate_disabled_by_enable_if_attr : Note<
     "candidate function made ineligible by enable_if">;
 def note_ovl_candidate_deduced_mismatch : Note<
@@ -3829,6 +3836,16 @@ def note_ovl_candidate_bad_target : Note<
     "call to "
     "%select{__device__|__global__|__host__|__host__ __device__|invalid}1 function from"
     " %select{__device__|__global__|__host__|__host__ __device__|invalid}2 function">;
+def note_ovl_candidate_constraints_not_satisfied : Note<
+    "candidate %select{function|function|constructor|"
+    "function|function|constructor|"
+    "constructor (the implicit default constructor)|"
+    "constructor (the implicit copy constructor)|"
+    "constructor (the implicit move constructor)|"
+    "function (the implicit copy assignment operator)|"
+    "function (the implicit move assignment operator)|"
+    "inherited constructor|"
+    "inherited constructor}0 not viable: constraints not satisfied">;
 def note_implicit_member_target_infer_collision : Note<
     "implicit %select{"
     "default constructor|"
