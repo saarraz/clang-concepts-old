@@ -713,6 +713,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.VectorizeLoop = Args.hasArg(OPT_vectorize_loops);
   Opts.VectorizeSLP = Args.hasArg(OPT_vectorize_slp);
 
+  Opts.PreferVectorWidth = Args.getLastArgValue(OPT_mprefer_vector_width_EQ);
+
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
 
@@ -1378,6 +1380,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     = Args.hasArg(OPT_code_completion_patterns);
   Opts.CodeCompleteOpts.IncludeGlobals
     = !Args.hasArg(OPT_no_code_completion_globals);
+  Opts.CodeCompleteOpts.IncludeNamespaceLevelDecls
+    = !Args.hasArg(OPT_no_code_completion_ns_level_decls);
   Opts.CodeCompleteOpts.IncludeBriefComments
     = Args.hasArg(OPT_code_completion_brief_comments);
 

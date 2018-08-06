@@ -8679,7 +8679,8 @@ public:
                                     OMPDeclareTargetDeclAttr::MapTypeTy MT,
                                     NamedDeclSetType &SameDirectiveDecls);
   /// Check declaration inside target region.
-  void checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D);
+  void checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D,
+                                        SourceLocation IdLoc = SourceLocation());
   /// Return true inside OpenMP declare target region.
   bool isInOpenMPDeclareTargetContext() const {
     return IsInOpenMPDeclareTargetContext;

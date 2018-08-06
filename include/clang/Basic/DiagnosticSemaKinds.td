@@ -1988,8 +1988,9 @@ def err_auto_var_requires_init : Error<
   "declaration of variable %0 with deduced type %1 requires an initializer">;
 def err_auto_new_requires_ctor_arg : Error<
   "new expression for type %0 requires a constructor argument">;
-def err_auto_new_list_init : Error<
-  "new expression for type %0 cannot use list-initialization">;
+def ext_auto_new_list_init : Extension<
+  "ISO C++ standards before C++17 do not allow new expression for "
+  "type %0 to use list-initialization">, InGroup<CXX17>;
 def err_auto_var_init_no_expression : Error<
   "initializer for variable %0 with type %1 is empty">;
 def err_auto_var_init_multiple_expressions : Error<
@@ -8722,6 +8723,8 @@ def err_omp_declare_target_to_and_link : Error<
 def warn_omp_not_in_target_context : Warning<
   "declaration is not declared in any declare target region">,
   InGroup<OpenMPTarget>;
+def err_omp_function_in_link_clause : Error<
+  "function name is not allowed in 'link' clause">;
 def err_omp_aligned_expected_array_or_ptr : Error<
   "argument of aligned clause should be array"
   "%select{ or pointer|, pointer, reference to array or reference to pointer}1"
@@ -8862,9 +8865,9 @@ def err_omp_function_expected : Error<
 def err_omp_wrong_cancel_region : Error<
   "one of 'for', 'parallel', 'sections' or 'taskgroup' is expected">;
 def err_omp_parent_cancel_region_nowait : Error<
-  "parent region for 'omp %select{cancellation point/cancel}0' construct cannot be nowait">;
+  "parent region for 'omp %select{cancellation point|cancel}0' construct cannot be nowait">;
 def err_omp_parent_cancel_region_ordered : Error<
-  "parent region for 'omp %select{cancellation point/cancel}0' construct cannot be ordered">;
+  "parent region for 'omp %select{cancellation point|cancel}0' construct cannot be ordered">;
 def err_omp_reduction_wrong_type : Error<"reduction type cannot be %select{qualified with 'const', 'volatile' or 'restrict'|a function|a reference|an array}0 type">;
 def err_omp_wrong_var_in_declare_reduction : Error<"only %select{'omp_priv' or 'omp_orig'|'omp_in' or 'omp_out'}0 variables are allowed in %select{initializer|combiner}0 expression">;
 def err_omp_declare_reduction_redefinition : Error<"redefinition of user-defined reduction for type %0">;
