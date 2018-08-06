@@ -43,14 +43,30 @@ using namespace clang;
 // TemplateParameterList Implementation
 //===----------------------------------------------------------------------===//
 
-TemplateParameterList::TemplateParameterList(SourceLocation TemplateLoc,
+// Create a constraint expression as the conjunction (the "and") of two other
+// constraint expressions.
+static Expr *CreateConstraintConjunction(const ASTContext &C, Expr *A, Expr *B){
+  if (!A) {
+    return B;
+  }
+  if (B) {
+    return new (C) BinaryOperator(A, B, BO_LAnd, C.BoolTy, VK_RValue,
+                                  OK_Ordinary, /*opLoc=*/SourceLocation(),
+                                  FPOptions());
+  }
+  return A;
+}
+
+TemplateParameterList::TemplateParameterList(const ASTContext& C,
+                                             SourceLocation TemplateLoc,
                                              SourceLocation LAngleLoc,
                                              ArrayRef<NamedDecl *> Params,
                                              SourceLocation RAngleLoc,
-                                             Expr *RequiresClause)
+                                             Expr *RequiresClause,
+                                             Expr *ConstrainedParamsConstraints)
     : TemplateLoc(TemplateLoc), LAngleLoc(LAngleLoc), RAngleLoc(RAngleLoc),
       NumParams(Params.size()), ContainsUnexpandedParameterPack(false),
-      HasRequiresClause(static_cast<bool>(RequiresClause)) {
+      HasAssociatedConstraints(ConstrainedParamsConstraints || RequiresClause) {
   for (unsigned Idx = 0; Idx < NumParams; ++Idx) {
     NamedDecl *P = Params[Idx];
     begin()[Idx] = P;
@@ -68,10 +84,15 @@ TemplateParameterList::TemplateParameterList(SourceLocation TemplateLoc,
       // template parameter list does too.
     }
   }
-  if (RequiresClause) {
-    *getTrailingObjects<Expr *>() = RequiresClause;
-    if (RequiresClause->containsUnexpandedParameterPack())
+  if (HasAssociatedConstraints) {
+    if ((RequiresClause && RequiresClause->containsUnexpandedParameterPack()) ||
+        (ConstrainedParamsConstraints &&
+         ConstrainedParamsConstraints->containsUnexpandedParameterPack()))
       ContainsUnexpandedParameterPack = true;
+    Expr **ACStorage = getTrailingObjects<Expr *>();
+    ACStorage[0] = RequiresClause;
+    ACStorage[1] = CreateConstraintConjunction(C, RequiresClause,
+                                               ConstrainedParamsConstraints);
   }
 }
 
@@ -80,11 +101,24 @@ TemplateParameterList::Create(const ASTContext &C, SourceLocation TemplateLoc,
                               SourceLocation LAngleLoc,
                               ArrayRef<NamedDecl *> Params,
                               SourceLocation RAngleLoc, Expr *RequiresClause) {
+  Expr *AC = nullptr;
+  for (NamedDecl *P : Params)
+    if (NonTypeTemplateParmDecl *NTTP = dyn_cast<NonTypeTemplateParmDecl>(P)) {
+      if (Expr *CE = NTTP->getConstraintExpression())
+        AC = CreateConstraintConjunction(C, AC, CE);
+    } else if (TemplateTemplateParmDecl *TTP =
+                                        dyn_cast<TemplateTemplateParmDecl>(P)) {
+      if (Expr *CE = TTP->getConstraintExpression())
+        AC = CreateConstraintConjunction(C, AC, CE);
+    } else
+      if (Expr *CE = cast<TemplateTypeParmDecl>(P)->getConstraintExpression())
+        AC = CreateConstraintConjunction(C, AC, CE);
+
   void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *, Expr *>(
-                             Params.size(), RequiresClause ? 1u : 0u),
+                             Params.size(), RequiresClause || AC ? 2u : 0u),
                          alignof(TemplateParameterList));
-  return new (Mem) TemplateParameterList(TemplateLoc, LAngleLoc, Params,
-                                         RAngleLoc, RequiresClause);
+  return new (Mem) TemplateParameterList(C, TemplateLoc, LAngleLoc, Params,
+                                         RAngleLoc, RequiresClause, AC);
 }
 
 unsigned TemplateParameterList::getMinRequiredArguments() const {
@@ -148,27 +182,11 @@ void *allocateDefaultArgStorageChain(const ASTContext &C) {
 
 } // namespace clang
 
-// Create a constraint expression as the conjunction (the "and") of two other
-// constraint expressions.
-static Expr *CreateConstraintConjunction(ASTContext &C, Expr *A, Expr *B) {
-  if (!A) {
-    return B;
-  }
-  if (B) {
-    return new (C) BinaryOperator(A, B, BO_LAnd, C.BoolTy, VK_RValue,
-                                  OK_Ordinary, /*opLoc=*/SourceLocation(),
-                                  FPOptions());
-  }
-  return A;
-}
-
 static ConstrainedTemplateDeclInfo *
 collectAssociatedConstraints(ASTContext &C, TemplateParameterList *Params,
                              Expr *TrailingRequiresClause = nullptr) {
-  // TODO: Instead of calling getRequiresClause - write and call a
-  // TemplateParameterList member function calculateAssociatedConstraints, which
-  // will also fetch constraint-expressions from constrained-parameters.
-  Expr *TotalAC = CreateConstraintConjunction(C, Params->getRequiresClause(),
+  Expr *TotalAC = CreateConstraintConjunction(C,
+                                             Params->getAssociatedConstraints(),
                                               TrailingRequiresClause);
   if (TotalAC) {
     ConstrainedTemplateDeclInfo *CTDI = new (C) ConstrainedTemplateDeclInfo;

@@ -1730,9 +1730,10 @@ DEF_TRAVERSE_DECL(TemplateTemplateParmDecl, {
   // D is the "T" in something like
   //   template <template <typename> class T> class container { };
   TRY_TO(TraverseDecl(D->getTemplatedDecl()));
-  if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
+  if (Expr *CE = D->getConstraintExpression())
+    TRY_TO(TraverseStmt(CE));
+  if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     TRY_TO(TraverseTemplateArgumentLoc(D->getDefaultArgument()));
-  }
   TRY_TO(TraverseTemplateParameterListHelper(D->getTemplateParameters()));
 })
 
@@ -1744,6 +1745,8 @@ DEF_TRAVERSE_DECL(TemplateTypeParmDecl, {
   // D is the "T" in something like "template<typename T> class vector;"
   if (D->getTypeForDecl())
     TRY_TO(TraverseType(QualType(D->getTypeForDecl(), 0)));
+  if (Expr *CE = D->getConstraintExpression())
+    TRY_TO(TraverseStmt(CE));
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     TRY_TO(TraverseTypeLoc(D->getDefaultArgumentInfo()->getTypeLoc()));
 })
@@ -2061,6 +2064,8 @@ DEF_TRAVERSE_DECL(ImplicitParamDecl, { TRY_TO(TraverseVarHelper(D)); })
 DEF_TRAVERSE_DECL(NonTypeTemplateParmDecl, {
   // A non-type template parameter, e.g. "S" in template<int S> class Foo ...
   TRY_TO(TraverseDeclaratorHelper(D));
+  if (Expr *CE = D->getConstraintExpression())
+    TRY_TO(TraverseStmt(CE));
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     TRY_TO(TraverseStmt(D->getDefaultArgument()));
 })

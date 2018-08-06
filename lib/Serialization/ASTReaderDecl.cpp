@@ -2288,6 +2288,9 @@ void ASTDeclReader::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
   D->setDeclaredWithTypename(Record.readInt());
 
   if (Record.readInt())
+    D->setConstraintExpression(Record.readExpr());
+
+  if (Record.readInt())
     D->setDefaultArgument(GetTypeSourceInfo());
 }
 
@@ -2307,6 +2310,8 @@ void ASTDeclReader::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
     // Rest of NonTypeTemplateParmDecl.
     D->ParameterPack = Record.readInt();
     if (Record.readInt())
+      D->setConstraintExpression(Record.readExpr());
+    if (Record.readInt())
       D->setDefaultArgument(Record.readExpr());
   }
 }
@@ -2325,6 +2330,8 @@ void ASTDeclReader::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
   } else {
     // Rest of TemplateTemplateParmDecl.
     D->ParameterPack = Record.readInt();
+    if (Record.readInt())
+      D->setConstraintExpression(Record.readExpr());
     if (Record.readInt())
       D->setDefaultArgument(Reader.getContext(),
                             Record.readTemplateArgumentLoc());

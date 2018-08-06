@@ -8664,7 +8664,6 @@ ASTReader::ReadTemplateParameterList(ModuleFile &F,
   Params.reserve(NumParams);
   while (NumParams--)
     Params.push_back(ReadDeclAs<NamedDecl>(F, Record, Idx));
-    // TODO: Concepts: Constrained parameters
 
   bool HasRequiresClause = Record[Idx++];
   Expr *RequiresClause = HasRequiresClause ? ReadExpr(F) : nullptr;

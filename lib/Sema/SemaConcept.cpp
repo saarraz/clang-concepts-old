@@ -63,13 +63,11 @@ bool Sema::CheckRedeclarationConstraintMatch(const Expr *OldAC,
 }
 
 void
-Sema::DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
-                                              const TemplateParameterList *New){
-  Diag(New->getTemplateLoc(),
-       diag::err_template_different_associated_constraints);
+Sema::DiagnoseRedeclarationConstraintMismatch(SourceLocation Old,
+                                              SourceLocation New){
+  Diag(New, diag::err_template_different_associated_constraints);
 
-  Diag(Old->getTemplateLoc(), diag::note_template_prev_declaration)
-        << /*declaration*/0;
+  Diag(Old, diag::note_template_prev_declaration) << /*declaration*/0;
 }
 
 template <typename AtomicEvaluator>

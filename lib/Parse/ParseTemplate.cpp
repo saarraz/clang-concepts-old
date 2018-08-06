@@ -13,6 +13,7 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
@@ -532,16 +533,37 @@ bool Parser::isStartOfTemplateTypeParameter() {
 ///       template-parameter: [C++ temp.param]
 ///         type-parameter
 ///         parameter-declaration
+///         constrained-parameter
 ///
-///       type-parameter: (see below)
-///         'class' ...[opt] identifier[opt]
-///         'class' identifier[opt] '=' type-id
-///         'typename' ...[opt] identifier[opt]
-///         'typename' identifier[opt] '=' type-id
-///         'template' '<' template-parameter-list '>' 
-///               'class' ...[opt] identifier[opt]
-///         'template' '<' template-parameter-list '>' 'class' identifier[opt]
-///               = id-expression
+///       type-parameter: (See below)
+///         type-parameter-key ...[opt] identifier[opt]
+///         type-parameter-key identifier[opt] = type-id
+///         'template' '<' template-parameter-list '>' type-parameter-key
+///               ...[opt] identifier[opt]
+///         'template' '<' template-parameter-list '>' type-parameter-key
+///               identifier[opt] '=' id-expression
+///
+///       type-parameter-key:
+///         class
+///         typename
+///
+///       constrained-parameter:
+///         qualified-concept-name ... identifier[opt]
+///         qualified-concept-name identifier[opt]
+///             default-template-argument[opt]
+///
+///       qualified-concept-name:
+///         nested-name-specifier[opt] concept-name
+///         nested-name-specifier[opt] partial-concept-id
+///
+///       partial-concept-id:
+///         concept-name '<' template-argument-list[opt] '>'
+///
+///       default-template-argument:
+///         = type-id
+///         = id-expression
+///         = initializer-clause
+///
 Decl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
   if (isStartOfTemplateTypeParameter())
     return ParseTypeParameter(Depth, Position);
@@ -549,10 +571,112 @@ Decl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
   if (Tok.is(tok::kw_template))
     return ParseTemplateTemplateParameter(Depth, Position);
 
+  // At this point we're either facing a constrained-parameter or a typename for
+  // a non type template parameter.
+  SourceLocation ParamStartLoc = Tok.getLocation();
+  ConceptDecl *CD;
+  SourceLocation ConceptNameLoc;
+  TemplateArgumentListInfo TALI;
+  if (TryParseConstrainedParameter(CD, ConceptNameLoc, TALI)) {
+    if (!CD)
+      // This is definitely a constrained parameter but there's been an error
+      // parsing it.
+      return nullptr;
+    return ParseConstrainedTemplateParameter(Depth, Position, ParamStartLoc,
+                                             CD, std::move(TALI));
+  }
+
   // If it's none of the above, then it must be a parameter declaration.
   // NOTE: This will pick up errors in the closure of the template parameter
   // list (e.g., template < ; Check here to implement >> style closures.
   return ParseNonTypeTemplateParameter(Depth, Position);
+}
+
+
+/// Try parsing a constrained-parameter construct at the current location. A
+/// constrained-parameter names a concept along with an optional set of template
+/// arguments, and denotes a placeholder that accepts entities that (along with
+/// the set of arguments, if any) satisfy the concept.
+/// \returns true if there is a constrained-parameter at the current location,
+/// false otherwise. If an error occured while parsing the
+/// constrained-parameter, the returned CD will be nullptr.
+bool Parser::TryParseConstrainedParameter(ConceptDecl *&CD,
+                                          SourceLocation &ConceptNameLoc,
+                                          TemplateArgumentListInfo &TALI) {
+  TentativeParsingAction TPA(*this);
+  CXXScopeSpec SS;
+
+  if (ParseOptionalCXXScopeSpecifier(SS, ParsedType(),
+                                     /*EnteringContext=*/false,
+                                     /*MayBePseudoDestructor=*/nullptr,
+                                     /*IsTypename=*/false,
+                                     /*LastII=*/nullptr,
+                                     /*OnlyNamespace=*/true,
+                                     /*SuppressDiagnostics=*/true)) {
+    TPA.Revert();
+    return false;
+  }
+
+  if (!Tok.is(tok::identifier)) {
+    TPA.Revert();
+    return false;
+  }
+
+  UnqualifiedId PossibleConceptName;
+  PossibleConceptName.setIdentifier(Tok.getIdentifierInfo(),
+                                    Tok.getLocation());
+  ConceptNameLoc = ConsumeToken();
+
+  TemplateTy PossibleConcept;
+  bool MemberOfUnknownSpecialization = false;
+  auto TNK = Actions.isTemplateName(getCurScope(), SS,
+                                    /*hasTemplateKeyword=*/false,
+                                    PossibleConceptName,
+                                    /*ObjectType=*/ParsedType(),
+                                    /*EnteringContext=*/false,
+                                    PossibleConcept,
+                                    MemberOfUnknownSpecialization);
+  assert(!MemberOfUnknownSpecialization
+         && "Member when we only allowed namespace scope qualifiers??");
+  if (!PossibleConcept || TNK != TNK_Concept_template) {
+    TPA.Revert();
+    return false;
+  }
+
+  TPA.Commit();
+
+  // At this point we're sure we're dealing with a constrained parameter. It
+  // may or may not have a template parameter list following the concept name.
+  if (Tok.is(tok::less)) {
+    if (AnnotateTemplateIdToken(PossibleConcept, TNK, SS,
+                                /*TemplateKWLoc=*/SourceLocation(),
+                                PossibleConceptName,
+                                /*AllowTypeAnnotation=*/false)) {
+      CD = nullptr;
+      return true;
+    }
+    auto *TemplateId = (TemplateIdAnnotation*)Tok.getAnnotationValue();
+    TALI.setLAngleLoc(TemplateId->LAngleLoc);
+    TALI.setRAngleLoc(TemplateId->RAngleLoc);
+    // Translate the parser's template argument list into our AST format.
+    Actions.translateTemplateArguments(
+      MutableArrayRef<ParsedTemplateArgument>(
+        TemplateId->getTemplateArgs(),
+        TemplateId->NumArgs), TALI);
+    ConsumeAnnotationToken();
+  }
+
+  CD = cast<ConceptDecl>(PossibleConcept.get().getAsTemplateDecl());
+
+  // If the user did not use a partial concept id and the concept does not
+  // accept a single argument or parameter pack, fail now with a nicer error
+  // message
+  if (TALI.size() == 0
+      && CD->getTemplateParameters()->getMinRequiredArguments() > 1) {
+    Diag(diag::err_constrained_parameter_missing_arguments) << CD;
+    CD = nullptr;
+  }
+  return true;
 }
 
 /// ParseTypeParameter - Parse a template type parameter (C++ [temp.param]).
@@ -774,9 +898,213 @@ Parser::ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position) {
   }
 
   // Create the parameter.
-  return Actions.ActOnNonTypeTemplateParameter(getCurScope(), ParamDecl, 
+  return Actions.ActOnNonTypeTemplateParameter(getCurScope(),
+                                               ParamDecl.getDeclSpec(),
+                                               ParamDecl.getLocStart(),
+                                               Actions.GetTypeForDeclarator(
+                                                      ParamDecl, getCurScope()),
+                                               ParamDecl.getIdentifier(),
+                                               ParamDecl.getIdentifierLoc(),
+                                               ParamDecl.hasEllipsis(),
                                                Depth, Position, EqualLoc, 
                                                DefaultArg.get());
+}
+
+Decl *
+Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
+                                          SourceLocation ParamStartLoc,
+                                          ConceptDecl *CD,
+                                          TemplateArgumentListInfo TALI) {
+  // Grab the ellipsis (if given).
+  SourceLocation EllipsisLoc;
+  TryConsumeToken(tok::ellipsis, EllipsisLoc);
+
+  // Grab the template parameter name (if given)
+  SourceLocation NameLoc;
+  IdentifierInfo *ParamName = nullptr;
+  if (Tok.is(tok::identifier)) {
+    ParamName = Tok.getIdentifierInfo();
+    NameLoc = ConsumeToken();
+  } else if (Tok.isOneOf(tok::equal, tok::comma, tok::greater,
+                         tok::greatergreater)) {
+    // Unnamed template parameter. Don't have to do anything here, just
+    // don't consume this token.
+  } else {
+    Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
+    return nullptr;
+  }
+
+  // Recover from misplaced ellipsis.
+  bool AlreadyHasEllipsis = EllipsisLoc.isValid();
+  if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
+    DiagnoseMisplacedEllipsis(EllipsisLoc, NameLoc, AlreadyHasEllipsis,
+                              true);
+
+  // Grab a default argument (if available).
+  // Per C++0x [basic.scope.pdecl]p9, we parse the default argument before
+  // we introduce the type parameter into the local scope.
+  SourceLocation EqualLoc;
+
+  NamedDecl *DeclaredParm = nullptr;
+  NamedDecl *ConceptPrototypeParameter = *CD->getTemplateParameters()->begin();
+  if (TemplateTypeParmDecl *TypeP = dyn_cast<TemplateTypeParmDecl>(
+                                      ConceptPrototypeParameter)) {
+    ParsedType DefaultArg;
+    if (TryConsumeToken(tok::equal, EqualLoc))
+      DefaultArg = ParseTypeName(/*SourceRange=*/nullptr,
+                                 Declarator::TemplateTypeArgContext)
+                     .get();
+    DeclaredParm = cast_or_null<NamedDecl>(
+      Actions.ActOnTypeParameter(getCurScope(),
+                                 TypeP->wasDeclaredWithTypename(),
+                                 EllipsisLoc, ParamStartLoc, ParamName,
+                                 NameLoc, Depth, Position, EqualLoc,
+                                 DefaultArg));
+    if (!DeclaredParm)
+      return nullptr;
+
+    QualType Q(cast<TemplateTypeParmDecl>(DeclaredParm)->getTypeForDecl(),
+               0);
+    if (!EllipsisLoc.isInvalid()
+        && CD->getTemplateParameters()->hasParameterPack())
+      // C++ [temp.param]p11.1
+      //   If P declares a template parameter pack and C is a variadic concept,
+      //   then A is the pack expansion P... . Otherwise, A is the
+      //   id-expression P.
+      Q = Actions.Context.getPackExpansionType(Q, /*NumExpansions=*/None);
+    TALI.prependArgument(
+      TemplateArgumentLoc(TemplateArgument(Q),
+                          TemplateArgumentLocInfo(
+                            Actions.Context.getTrivialTypeSourceInfo(Q))));
+  } else if (TemplateTemplateParmDecl *TemplateP =
+               dyn_cast<TemplateTemplateParmDecl>(ConceptPrototypeParameter)) {
+    ParsedTemplateArgument DefaultArg;
+    if (TryConsumeToken(tok::equal, EqualLoc)) {
+      DefaultArg = ParseTemplateTemplateArgument();
+      if (DefaultArg.isInvalid()) {
+        Diag(Tok.getLocation(),
+             diag::err_default_template_template_parameter_not_template);
+        SkipUntil(tok::comma, tok::greater, tok::greatergreater,
+                  StopAtSemi | StopBeforeMatch);
+      }
+    }
+
+
+    DeclaredParm = cast_or_null<NamedDecl>(
+      Actions.ActOnTemplateTemplateParameter(getCurScope(),
+                                             ParamStartLoc,
+                                             TemplateP->getTemplateParameters(),
+                                             EllipsisLoc, ParamName,
+                                             NameLoc, Depth, Position,
+                                             EqualLoc, DefaultArg));
+    if (!DeclaredParm)
+      return nullptr;
+    TemplateName TemplName(cast_or_null<TemplateDecl>(DeclaredParm));
+
+    // C++ [temp.param]p11.1
+    //   If P declares a template parameter pack and C is a variadic concept,
+    //   then A is the pack expansion P... . Otherwise, A is the
+    //   id-expression P.
+    bool ShouldExpand = !EllipsisLoc.isInvalid()
+        && CD->getTemplateParameters()->hasParameterPack();
+
+    NestedNameSpecifierLocBuilder Builder;
+    TemplateArgumentLocInfo LocInf(Builder.getWithLocInContext(Actions.Context),
+                                   NameLoc, EllipsisLoc);
+    TemplateArgumentLoc TAL(ShouldExpand
+                            ? TemplateArgument(TemplName, Optional<unsigned>())
+                            : TemplateArgument(TemplName), LocInf);
+    TALI.prependArgument(TAL);
+  } else if (NonTypeTemplateParmDecl *NonTypeP =
+               dyn_cast<NonTypeTemplateParmDecl>(ConceptPrototypeParameter)) {
+    ExprResult DefaultArg;
+    if (TryConsumeToken(tok::equal, EqualLoc)) {
+      // C++ [temp.param]p15:
+      //   When parsing a default template-argument for a non-type
+      //   template-parameter, the first non-nested > is taken as the
+      //   end of the template-parameter-list rather than a greater-than
+      //   operator.
+      GreaterThanIsOperatorScope G(GreaterThanIsOperator, false);
+      EnterExpressionEvaluationContext ConstantEvaluated(
+          Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+
+      DefaultArg = Actions.CorrectDelayedTyposInExpr(
+                     ParseAssignmentExpression());
+      if (DefaultArg.isInvalid())
+        SkipUntil(tok::comma, tok::greater, StopAtSemi | StopBeforeMatch);
+    }
+
+    DeclaredParm = cast_or_null<NamedDecl>(
+      Actions.ActOnNonTypeTemplateParameter(getCurScope(),
+                                            DeclSpec(getAttrFactory()),
+                                            ParamStartLoc,
+                                            NonTypeP->getTypeSourceInfo(),
+                                            ParamName, NameLoc,
+                                            EllipsisLoc.isValid(),
+                                            Depth, Position, EqualLoc,
+                                            DefaultArg.isInvalid() ? nullptr :
+                                                             DefaultArg.get()));
+    if (!DeclaredParm)
+      return nullptr;
+
+    ValueDecl *VD = cast<ValueDecl>(DeclaredParm);
+    Expr *DerivedArgument =
+      new (Actions.Context) DeclRefExpr(VD,
+                                   /*RefersToEnclosingVariableOrCapture=*/false,
+                                        VD->getType(), VK_LValue, NameLoc,
+                                        DeclarationNameLoc(VD->getDeclName()));
+    // C++ [temp.param]p11.1
+    //   If P declares a template parameter pack and C is a variadic concept,
+    //   then A is the pack expansion P... . Otherwise, A is the
+    //   id-expression P.
+    if (EllipsisLoc.isValid()
+        && CD->getTemplateParameters()->hasParameterPack())
+      DerivedArgument =
+        new (Actions.Context) PackExpansionExpr(Actions.Context.DependentTy,
+                                                DerivedArgument, EllipsisLoc,
+                                                /*NumExpansions=*/None);
+    TemplateArgument DeclaredParmA(DerivedArgument);
+    TALI.prependArgument(
+      TemplateArgumentLoc(DeclaredParmA,
+                          TemplateArgumentLocInfo(DerivedArgument)));
+  } else
+    llvm_unreachable("Unrecognized concept prototype parameter type.");
+
+  // We now have an actual template parameter declared - form the constraint
+  // expression and attach it to the declared parameter.
+
+  CXXScopeSpec SS;
+  ExprResult Result = Actions.CheckConceptTemplateId(SS, CD, ParamStartLoc,
+                                                     &TALI);
+  if (Result.isInvalid() || !Result.isUsable())
+    // Just ignore the constraint and attempt to continue.
+    return DeclaredParm;
+
+  Expr *IntroducedConstraint = Result.get();
+  if (EllipsisLoc.isValid() && !CD->getTemplateParameters()->hasParameterPack())
+    // We have the following case:
+    //
+    // template<typename T> concept C1 = true;
+    // template<C1... T> struct s1;
+    //
+    // The constraint: (C1<T> && ...)
+    IntroducedConstraint =
+      Actions.ActOnCXXFoldExpr(/*LParenLoc=*/SourceLocation(),
+                               IntroducedConstraint, tok::ampamp,
+                               EllipsisLoc, /*RHS=*/nullptr,
+                               /*RParenLoc=*/SourceLocation()).get();
+
+  if (TemplateTypeParmDecl *TypeP =
+        dyn_cast<TemplateTypeParmDecl>(DeclaredParm))
+    TypeP->setConstraintExpression(IntroducedConstraint);
+  else if (TemplateTemplateParmDecl *TemplateP =
+               dyn_cast<TemplateTemplateParmDecl>(DeclaredParm))
+    TemplateP->setConstraintExpression(IntroducedConstraint);
+  else
+    cast<NonTypeTemplateParmDecl>(DeclaredParm)
+      ->setConstraintExpression(IntroducedConstraint);
+
+  return DeclaredParm;
 }
 
 void Parser::DiagnoseMisplacedEllipsis(SourceLocation EllipsisLoc,

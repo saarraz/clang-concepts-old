@@ -1567,6 +1567,11 @@ void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
 
   Record.push_back(D->wasDeclaredWithTypename());
 
+  Expr *CE = D->getConstraintExpression();
+  Record.push_back(CE != nullptr);
+  if (CE)
+    Record.AddStmt(CE);
+
   bool OwnsDefaultArg = D->hasDefaultArgument() &&
                         !D->defaultArgumentWasInherited();
   Record.push_back(OwnsDefaultArg);
@@ -1598,6 +1603,10 @@ void ASTDeclWriter::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
   } else {
     // Rest of NonTypeTemplateParmDecl.
     Record.push_back(D->isParameterPack());
+    Expr *CE = D->getConstraintExpression();
+    Record.push_back(CE != nullptr);
+    if (CE)
+      Record.AddStmt(CE);
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);
@@ -1627,6 +1636,10 @@ void ASTDeclWriter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
   } else {
     // Rest of TemplateTemplateParmDecl.
     Record.push_back(D->isParameterPack());
+    Expr *CE = D->getConstraintExpression();
+    Record.push_back(CE != nullptr);
+    if (CE)
+      Record.AddStmt(CE);
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);

@@ -3696,15 +3696,17 @@ Decl *ASTNodeImporter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
   // is created.
   
   // FIXME: Import default argument.
-  return TemplateTypeParmDecl::Create(Importer.getToContext(),
-                              Importer.getToContext().getTranslationUnitDecl(),
-                                      Importer.Import(D->getLocStart()),
-                                      Importer.Import(D->getLocation()),
-                                      D->getDepth(),
-                                      D->getIndex(), 
-                                      Importer.Import(D->getIdentifier()),
-                                      D->wasDeclaredWithTypename(),
-                                      D->isParameterPack());
+  auto *R = TemplateTypeParmDecl::Create(Importer.getToContext(),
+                               Importer.getToContext().getTranslationUnitDecl(),
+                               Importer.Import(D->getLocStart()),
+                               Importer.Import(D->getLocation()),
+                               D->getDepth(), D->getIndex(),
+                               Importer.Import(D->getIdentifier()),
+                               D->wasDeclaredWithTypename(),
+                               D->isParameterPack());
+  if (Expr *CE = D->getConstraintExpression())
+    R->setConstraintExpression(VisitExpr(CE));
+  return R;
 }
 
 Decl *
@@ -3729,12 +3731,15 @@ ASTNodeImporter::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
 
   // FIXME: Import default argument.
   
-  return NonTypeTemplateParmDecl::Create(Importer.getToContext(),
+  auto *R = NonTypeTemplateParmDecl::Create(Importer.getToContext(),
                                Importer.getToContext().getTranslationUnitDecl(),
-                                         Importer.Import(D->getInnerLocStart()),
-                                         Loc, D->getDepth(), D->getPosition(),
-                                         Name.getAsIdentifierInfo(),
-                                         T, D->isParameterPack(), TInfo);
+                               Importer.Import(D->getInnerLocStart()),
+                               Loc, D->getDepth(), D->getPosition(),
+                               Name.getAsIdentifierInfo(), T,
+                               D->isParameterPack(), TInfo);
+  if (Expr *CE = D->getConstraintExpression())
+    R->setConstraintExpression(VisitExpr(CE));
+  return R;
 }
 
 Decl *
@@ -3754,13 +3759,14 @@ ASTNodeImporter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
     return nullptr;
 
   // FIXME: Import default argument.
-  
-  return TemplateTemplateParmDecl::Create(Importer.getToContext(), 
-                              Importer.getToContext().getTranslationUnitDecl(), 
-                                          Loc, D->getDepth(), D->getPosition(),
-                                          D->isParameterPack(),
-                                          Name.getAsIdentifierInfo(), 
-                                          TemplateParams);
+  auto *R = TemplateTemplateParmDecl::Create(Importer.getToContext(),
+                              Importer.getToContext().getTranslationUnitDecl(),
+                              Loc, D->getDepth(), D->getPosition(),
+                              D->isParameterPack(), Name.getAsIdentifierInfo(),
+                              TemplateParams);
+  if (Expr *CE = D->getConstraintExpression())
+    R->setConstraintExpression(VisitExpr(CE));
+  return R;
 }
 
 Decl *ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
