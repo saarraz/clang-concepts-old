@@ -18,6 +18,7 @@
 #include "clang/AST/DeclAccessPair.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/LambdaCapture.h"
@@ -32,6 +33,7 @@
 #include "clang/Sema/Template.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "clang/Sema/Sema.h"
+#include "clang/Sema/Overload.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -39,6 +41,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <clang/Sema/Lookup.h>
 
 using namespace clang;
 
@@ -1551,4 +1554,60 @@ bool ConceptSpecializationExpr::setTemplateArguments(ASTContext &C, Sema *S,
     return true;
   }
   return false;
+}
+
+RequiresExpr::RequiresExpr(ASTContext &C, SourceLocation RequiresKWLoc,
+                           RequiresExprBodyDecl *Body,
+                           ArrayRef<ParmVarDecl *> LocalParameters,
+                           ArrayRef<Requirement *> Requirements,
+                           SourceLocation RBraceLoc)
+  : Expr(RequiresExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
+         /*TD=*/false, /*VD=*/false, /*ID=*/false,
+         /*ContainsUnexpandedParameterPack=*/false), IsSatisfied(false),
+    RequiresKWLoc(RequiresKWLoc), Body(Body), RBraceLoc(RBraceLoc) {
+  setLocalParameters(LocalParameters);
+  setRequirements(Requirements);
+}
+
+void RequiresExpr::setLocalParameters(ArrayRef<ParmVarDecl *> LocalParameters) {
+  assert(this->LocalParameters.empty() && !isInstantiationDependent()
+         && !containsUnexpandedParameterPack() &&
+         "setLocalParameters must be called before setRequirements and may not "
+         "be called twice");
+  bool Dependent = false;
+  bool ContainsUnexpandedParameterPack = false;
+  for (ParmVarDecl *P : LocalParameters) {
+    Dependent |= P->getType()->isInstantiationDependentType();
+    ContainsUnexpandedParameterPack |=
+        P->getType()->containsUnexpandedParameterPack();
+  }
+  this->LocalParameters.assign(LocalParameters.begin(), LocalParameters.end());
+  setValueDependent(Dependent);
+  setInstantiationDependent(Dependent);
+  setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
+}
+
+void RequiresExpr::setRequirements(ArrayRef<Requirement *> Requirements) {
+  assert(this->Requirements.empty() && "setRequirements may only be called "
+                                       "once per object.");
+  bool Dependent = false;
+  bool ContainsUnexpandedParameterPack = false;
+  IsSatisfied = true;
+  for (Requirement *R : Requirements) {
+    Dependent |= R->isDependent();
+    ContainsUnexpandedParameterPack |= R->containsUnexpandedParameterPack();
+    if (!Dependent)
+      IsSatisfied &= R->isSatisfied();
+  }
+  this->Requirements.assign(Requirements.begin(), Requirements.end());
+  IsSatisfied |= Dependent;
+  // SetLocalParameters may have been called and may have updated the
+  // flags
+  if (!isInstantiationDependent() && Dependent) {
+    setValueDependent(Dependent);
+    setInstantiationDependent(Dependent);
+  }
+  if (!containsUnexpandedParameterPack() && ContainsUnexpandedParameterPack) {
+    setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
+  }
 }

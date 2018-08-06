@@ -5654,8 +5654,11 @@ public:
 
   /// \brief Emit diagnostics explaining why a constraint expression was deemed
   /// unsatisfied.
+  /// \param First whether this is the first time an unsatisfied constraint is
+  /// diagnosed for this error.
   void
-  DiagnoseUnsatisfiedConstraint(const ConstraintSatisfaction& Satisfaction);
+  DiagnoseUnsatisfiedConstraint(const ConstraintSatisfaction& Satisfaction,
+                                bool First = true);
 
   /// \brief Emit diagnostics explaining why a constraint expression was deemed
   /// unsatisfied because it was ill-formed.
@@ -6576,12 +6579,39 @@ public:
                                   const TemplateArgument *Args,
                                   unsigned NumArgs);
 
-  // Concepts
+  //===--------------------------------------------------------------------===//
+  // C++ Concepts
+  //===--------------------------------------------------------------------===//
   Decl *ActOnConceptDefinition(
       Scope *S,
       MultiTemplateParamsArg TemplateParameterLists,
       IdentifierInfo *Name, SourceLocation L,
       Expr *ConstraintExpr);
+
+  RequiresExprBodyDecl *
+  ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
+                         ArrayRef<ParmVarDecl *> LocalParameters,
+                         Scope *LocalParametersScope);
+  void ActOnExitRequiresExpr();
+  Requirement *ActOnSimpleRequirement(Expr *E);
+  Requirement *ActOnTypeRequirement(SourceLocation TypenameKWLoc,
+                                    CXXScopeSpec TypeScope,
+                                    UnqualifiedId &TypeName);
+  Requirement *ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc);
+  Requirement *ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
+                                        TypeSourceInfo *ExpectedType);
+  Requirement *ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
+                                        SourceLocation ConceptNameLoc,
+                                        ConceptDecl *NamedConcept,
+                                        TemplateArgumentListInfo TemplateArgs,
+                                        Declarator &DeducedDeclarator,
+                                        unsigned Depth);
+  Requirement *ActOnNestedRequirement(Expr *Constraint);
+  ExprResult CreateRequiresExpr(SourceLocation RequiresKWLoc,
+                                RequiresExprBodyDecl *Body,
+                                ArrayRef<ParmVarDecl *> LocalParameters,
+                                ArrayRef<Requirement *> Requirements,
+                                SourceLocation ClosingBraceLoc);
 
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])
@@ -7147,6 +7177,14 @@ public:
   bool isTemplateTemplateParameterAtLeastAsSpecializedAs(
       TemplateParameterList *P, TemplateDecl *AArg, SourceLocation Loc);
 
+
+  /// \brief Given a template parameter list containing a single type parameter,
+  /// the type of a parameter of a hypothetical function template with the
+  /// given template parameter list, and the argument passed to that function
+  /// template, attempts to deduce the type parameter.
+  QualType matchTypeByDeduction(TemplateParameterList *TemplateParams,
+                                QualType ParamType, Expr *Arg);
+
   void MarkUsedTemplateParameters(const TemplateArgumentList &TemplateArgs,
                                   bool OnlyDeduced,
                                   unsigned Depth,
@@ -7215,6 +7253,9 @@ public:
       /// We are instantiating the exception specification for a function
       /// template which was deferred until it was needed.
       ExceptionSpecInstantiation,
+
+      /// We are instantiating a requirement of a requires expression.
+      RequirementInstantiation,
 
       /// We are declaring an implicit special member function.
       DeclaringSpecialMember,
@@ -7467,6 +7508,12 @@ public:
                           ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
+    /// \brief Note that we are instantiating a requirement of a requires
+    /// expression.
+    InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                          Requirement *Req,
+                          sema::TemplateDeductionInfo &DeductionInfo,
+                          SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we have finished instantiating this template.
     void Clear();

@@ -5652,3 +5652,22 @@ bool hasDeducibleTemplateParameters(Sema &S,
 
   return Deduced.any();
 }
+
+QualType Sema::matchTypeByDeduction(TemplateParameterList *TemplateParams,
+                                    QualType ParamType, Expr *Arg) {
+  assert(TemplateParams->size() == 1 &&
+         isa<TemplateTypeParmDecl>(TemplateParams->getParam(0)) &&
+         "Only template parameter lists containing a single type parameter are "
+         "supported");
+  llvm::SmallVector<DeducedTemplateArgument, 1> Deduced;
+  Deduced.resize(1);
+  llvm::SmallVector<OriginalCallArg, 1> OriginalCallArgs;
+  OriginalCallArgs.push_back(OriginalCallArg(ParamType,
+                                             /*DecomposedParam=*/false,
+                                             /*ArgIdx=*/0, Arg->getType()));
+  TemplateDeductionInfo Info{SourceLocation()};
+  auto Result = ::DeduceTemplateArgumentsFromCallArgument(*this, TemplateParams,
+      /*FirstInnerIndex=*/0, ParamType, Arg, Info, Deduced,  OriginalCallArgs,
+      /*DecomposedParam=*/false, /*ArgIdx=*/0, /*TDF=*/0);
+  return Result == TDK_Success ? Deduced[0].getAsType() : QualType();
+}
