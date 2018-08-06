@@ -10552,7 +10552,8 @@ Sema::findInheritingConstructor(SourceLocation Loc,
       Context, Derived, UsingLoc, NameInfo, TInfo->getType(), TInfo,
       BaseCtor->isExplicit(), /*Inline=*/true,
       /*ImplicitlyDeclared=*/true, Constexpr,
-      InheritedConstructor(Shadow, BaseCtor));
+      InheritedConstructor(Shadow, BaseCtor),
+      BaseCtor->getTrailingRequiresClause());
   if (Shadow->isInvalidDecl())
     DerivedCtor->setInvalidDecl();
 

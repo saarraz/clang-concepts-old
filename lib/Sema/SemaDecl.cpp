@@ -7845,6 +7845,10 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
 
   bool isExplicit = D.getDeclSpec().isExplicitSpecified();
   bool isConstexpr = D.getDeclSpec().isConstexprSpecified();
+  Expr *TrailingRequiresClause = D.isFunctionDeclarator()
+                                 && D.hasTrailingRequiresClause() ?
+                             D.getFunctionTypeInfo().getTrailingRequiresClause()
+                                 : nullptr;
 
   // Check that the return type is not an abstract class type.
   // For record types, this is done by the AbstractClassUsageDiagnoser once
@@ -7865,7 +7869,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                       D.getLocStart(), NameInfo,
                                       R, TInfo, isExplicit, isInline,
                                       /*isImplicitlyDeclared=*/false,
-                                      isConstexpr);
+                                      isConstexpr, InheritedConstructor(),
+                                      TrailingRequiresClause);
 
   } else if (Name.getNameKind() == DeclarationName::CXXDestructorName) {
     // This is a C++ destructor declaration.
@@ -7876,7 +7881,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                         SemaRef.Context, Record,
                                         D.getLocStart(),
                                         NameInfo, R, TInfo, isInline,
-                                        /*isImplicitlyDeclared=*/false);
+                                        /*isImplicitlyDeclared=*/false,
+                                        TrailingRequiresClause);
 
       // If the class is complete, then we now create the implicit exception
       // specification. If the class is incomplete or dependent, we can't do
@@ -7900,7 +7906,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                   D.getLocStart(),
                                   D.getIdentifierLoc(), Name, R, TInfo,
                                   SC, isInline,
-                                  /*hasPrototype=*/true, isConstexpr);
+                                  /*hasPrototype=*/true, isConstexpr,
+                                  TrailingRequiresClause);
     }
 
   } else if (Name.getNameKind() == DeclarationName::CXXConversionFunctionName) {
@@ -7915,7 +7922,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
     return CXXConversionDecl::Create(SemaRef.Context, cast<CXXRecordDecl>(DC),
                                      D.getLocStart(), NameInfo,
                                      R, TInfo, isInline, isExplicit,
-                                     isConstexpr, SourceLocation());
+                                     isConstexpr, SourceLocation(),
+                                     TrailingRequiresClause);
 
   } else if (Name.getNameKind() == DeclarationName::CXXDeductionGuideName) {
     SemaRef.CheckDeductionGuideDeclarator(D, R, SC);
@@ -7941,7 +7949,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                                cast<CXXRecordDecl>(DC),
                                                D.getLocStart(), NameInfo, R,
                                                TInfo, SC, isInline,
-                                               isConstexpr, SourceLocation());
+                                               isConstexpr, SourceLocation(),
+                                               TrailingRequiresClause);
     IsVirtualOkay = !Ret->isStatic();
     return Ret;
   } else {
@@ -7956,7 +7965,8 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
     return FunctionDecl::Create(SemaRef.Context, DC,
                                 D.getLocStart(),
                                 NameInfo, R, TInfo, SC, isInline,
-                                true/*HasPrototype*/, isConstexpr);
+                                true/*HasPrototype*/, isConstexpr,
+                                TrailingRequiresClause);
   }
 }
 
@@ -8364,6 +8374,11 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         Diag(D.getDeclSpec().getVirtualSpecLoc(),
              diag::err_virtual_member_function_template)
           << FixItHint::CreateRemoval(D.getDeclSpec().getVirtualSpecLoc());
+      } else if (D.hasTrailingRequiresClause()) {
+        // C++2a [class.virtual]p6
+        // A virtual method shall not have a requires-clause.
+        Diag(NewFD->getTrailingRequiresClause()->getLocStart(),
+             diag::err_constrained_virtual_method);
       } else {
         // Okay: Add virtual to the method.
         NewFD->setVirtualAsWritten(true);

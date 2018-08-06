@@ -2134,7 +2134,9 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
                                             FromConstructor->isExplicit(),
                                             D->isInlineSpecified(), 
                                             D->isImplicit(),
-                                            D->isConstexpr());
+                                            D->isConstexpr(),
+                                            InheritedConstructor(),
+                                            D->getTrailingRequiresClause());
     if (unsigned NumInitializers = FromConstructor->getNumCtorInitializers()) {
       SmallVector<CXXCtorInitializer *, 4> CtorInitializers;
       for (CXXCtorInitializer *I : FromConstructor->inits()) {
@@ -2157,7 +2159,8 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
                                            InnerLocStart,
                                            NameInfo, T, TInfo,
                                            D->isInlineSpecified(),
-                                           D->isImplicit());
+                                           D->isImplicit(),
+                                           D->getTrailingRequiresClause());
   } else if (CXXConversionDecl *FromConversion
                                            = dyn_cast<CXXConversionDecl>(D)) {
     ToFunction = CXXConversionDecl::Create(Importer.getToContext(), 
@@ -2167,7 +2170,8 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
                                            D->isInlineSpecified(),
                                            FromConversion->isExplicit(),
                                            D->isConstexpr(),
-                                           Importer.Import(D->getLocEnd()));
+                                           Importer.Import(D->getLocEnd()),
+                                           D->getTrailingRequiresClause());
   } else if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
     ToFunction = CXXMethodDecl::Create(Importer.getToContext(), 
                                        cast<CXXRecordDecl>(DC),
@@ -2176,14 +2180,16 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
                                        Method->getStorageClass(),
                                        Method->isInlineSpecified(),
                                        D->isConstexpr(),
-                                       Importer.Import(D->getLocEnd()));
+                                       Importer.Import(D->getLocEnd()),
+                                       D->getTrailingRequiresClause());
   } else {
     ToFunction = FunctionDecl::Create(Importer.getToContext(), DC,
                                       InnerLocStart,
                                       NameInfo, T, TInfo, D->getStorageClass(),
                                       D->isInlineSpecified(),
                                       D->hasWrittenPrototype(),
-                                      D->isConstexpr());
+                                      D->isConstexpr(),
+                                      D->getTrailingRequiresClause());
   }
 
   // Import the qualifier, if any.

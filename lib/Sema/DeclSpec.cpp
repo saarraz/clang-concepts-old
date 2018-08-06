@@ -178,7 +178,8 @@ DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto,
                                              SourceLocation LocalRangeBegin,
                                              SourceLocation LocalRangeEnd,
                                              Declarator &TheDeclarator,
-                                             TypeResult TrailingReturnType) {
+                                             TypeResult TrailingReturnType,
+                                             Expr *TrailingRequiresClause) {
   assert(!(TypeQuals & DeclSpec::TQ_atomic) &&
          "function cannot have _Atomic qualifier");
 
@@ -212,6 +213,7 @@ DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto,
   I.Fun.HasTrailingReturnType   = TrailingReturnType.isUsable() ||
                                   TrailingReturnType.isInvalid();
   I.Fun.TrailingReturnType      = TrailingReturnType.get();
+  I.Fun.TrailingRequiresClause  = TrailingRequiresClause;
 
   assert(I.Fun.TypeQuals == TypeQuals && "bitfield overflow");
   assert(I.Fun.ExceptionSpecType == ESpecType && "bitfield overflow");

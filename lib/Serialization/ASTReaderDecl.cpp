@@ -796,6 +796,9 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->IsLateTemplateParsed = Record.readInt();
   FD->setCachedLinkage(Linkage(Record.readInt()));
   FD->EndRangeLoc = ReadSourceLocation();
+  bool HasTrailingRequiresClause = Record.readInt();
+  if (HasTrailingRequiresClause)
+    FD->TrailingRequiresClause = Record.readExpr();
 
   switch ((FunctionDecl::TemplatedKind)Record.readInt()) {
   case FunctionDecl::TK_NonTemplate:

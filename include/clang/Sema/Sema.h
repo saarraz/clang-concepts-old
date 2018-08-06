@@ -2857,10 +2857,9 @@ public:
                                      bool *pHadMultipleCandidates = nullptr);
 
   FunctionDecl *
-  resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
-                                              DeclAccessPair &FoundResult);
+  resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &FoundResult);
 
-  bool resolveAndFixAddressOfOnlyViableOverloadCandidate(
+  bool resolveAndFixAddressOfSingleOverloadCandidate(
       ExprResult &SrcExpr, bool DoFunctionPointerConversion = false);
 
   FunctionDecl *
@@ -5595,15 +5594,9 @@ public:
   bool IsMoreConstrained(NamedDecl *D1, Expr *AC1, NamedDecl *D2, Expr *AC2);
 
   /// \brief Check whether the given constraint expression is satisfied given
-  /// template arguments. Returns false and updates IsSatisfied with the
+  /// template arguments. Returns false and updates Satisfaction with the
   /// satisfaction verdict if successful, emits a diagnostic and returns true if
   /// an error occured and satisfaction could not be determined.
-  ///
-  /// \param SubstitutedExpr if not null, will be used to return the substituted
-  /// constraint expression (to be used for diagnostics, for example).
-  ///
-  /// \param SubstDiag if the constraint was not satisfied because of a
-  /// substitution failure, this will contain the emitted diagnostics, if any.
   ///
   /// \returns true if an error occurred, false otherwise.
   bool CheckConstraintSatisfaction(TemplateDecl *Template,
@@ -5622,6 +5615,15 @@ public:
                                    const Expr *ConstraintExpr,
                                    ArrayRef<TemplateArgument> TemplateArgs,
                                    SourceLocation TemplateNameLoc,
+                                   ConstraintSatisfaction &Satisfaction);
+
+  /// \brief Check whether the given non-dependent constraint expression is
+  /// satisfied. Returns false and updates Satisfaction with the satisfaction
+  /// verdict if successful, emits a diagnostic and returns true if an error
+  /// occured and satisfaction could not be determined.
+  ///
+  /// \returns true if an error occurred, false otherwise.
+  bool CheckConstraintSatisfaction(const Expr *ConstraintExpr,
                                    ConstraintSatisfaction &Satisfaction);
 
   /// \brief Check that the associated constraints of a template declaration

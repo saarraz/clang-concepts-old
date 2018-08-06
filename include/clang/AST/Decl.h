@@ -1790,6 +1790,10 @@ private:
   /// the DeclaratorDecl base class.
   DeclarationNameLoc DNLoc;
 
+  /// \brief The constraint-expression introduced by the trailing
+  /// requires-clause provided in the function declaration, if any.
+  Expr *TrailingRequiresClause;
+
   /// \brief Specify that this function declaration is actually a function
   /// template specialization.
   ///
@@ -1830,7 +1834,8 @@ protected:
   FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool isInlineSpecified,
-               bool isConstexprSpecified)
+               bool isConstexprSpecified,
+               Expr *TrailingRequiresClause = nullptr)
       : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                        StartLoc),
         DeclContext(DK), redeclarable_base(C), SClass(S),
@@ -1842,7 +1847,8 @@ protected:
         IsLateTemplateParsed(false), IsConstexpr(isConstexprSpecified),
         InstantiationIsPending(false), UsesSEHTry(false), HasSkippedBody(false),
         WillHaveBody(false), IsCopyDeductionCandidate(false),
-        EndRangeLoc(NameInfo.getEndLoc()), DNLoc(NameInfo.getInfo()) {}
+        EndRangeLoc(NameInfo.getEndLoc()), DNLoc(NameInfo.getInfo()),
+        TrailingRequiresClause(TrailingRequiresClause) {}
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -1879,12 +1885,13 @@ public:
                               StorageClass SC,
                               bool isInlineSpecified = false,
                               bool hasWrittenPrototype = true,
-                              bool isConstexprSpecified = false) {
+                              bool isConstexprSpecified = false,
+                              Expr *TrailingRequiresClause = nullptr) {
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo,
                                 SC,
                                 isInlineSpecified, hasWrittenPrototype,
-                                isConstexprSpecified);
+                                isConstexprSpecified, TrailingRequiresClause);
   }
 
   static FunctionDecl *Create(ASTContext &C, DeclContext *DC,
@@ -1894,7 +1901,8 @@ public:
                               StorageClass SC,
                               bool isInlineSpecified,
                               bool hasWrittenPrototype,
-                              bool isConstexprSpecified = false);
+                              bool isConstexprSpecified = false,
+                              Expr *TrailingRequiresClause = nullptr);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, unsigned ID);
                        
@@ -2147,6 +2155,21 @@ public:
   /// True if this function will eventually have a body, once it's fully parsed.
   bool willHaveBody() const { return WillHaveBody; }
   void setWillHaveBody(bool V = true) { WillHaveBody = V; }
+
+  /// \brief Get the constraint-expression introduced by the trailing
+  /// requires-clause in the function/member declaration, or null if no
+  /// requires-clause was provided.
+  Expr *getTrailingRequiresClause() {
+    return TrailingRequiresClause;
+  }
+
+  const Expr *getTrailingRequiresClause() const {
+    return TrailingRequiresClause;
+  }
+
+  void setTrailingRequiresClause(Expr *E) {
+    TrailingRequiresClause = E;
+  }
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 

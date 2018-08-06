@@ -148,16 +148,31 @@ void *allocateDefaultArgStorageChain(const ASTContext &C) {
 
 } // namespace clang
 
+// Create a constraint expression as the conjunction (the "and") of two other
+// constraint expressions.
+static Expr *CreateConstraintConjunction(ASTContext &C, Expr *A, Expr *B) {
+  if (!A) {
+    return B;
+  }
+  if (B) {
+    return new (C) BinaryOperator(A, B, BO_LAnd, C.BoolTy, VK_RValue,
+                                  OK_Ordinary, /*opLoc=*/SourceLocation(),
+                                  FPOptions());
+  }
+  return A;
+}
+
 static ConstrainedTemplateDeclInfo *
-collectAssociatedConstraints(ASTContext& C, TemplateParameterList *Params) {
+collectAssociatedConstraints(ASTContext &C, TemplateParameterList *Params,
+                             Expr *TrailingRequiresClause = nullptr) {
   // TODO: Instead of calling getRequiresClause - write and call a
   // TemplateParameterList member function calculateAssociatedConstraints, which
   // will also fetch constraint-expressions from constrained-parameters.
-  Expr *AssociatedConstraints = Params->getRequiresClause();
-  // TODO: Collect function requires clause, if any.
-  if (AssociatedConstraints) {
+  Expr *TotalAC = CreateConstraintConjunction(C, Params->getRequiresClause(),
+                                              TrailingRequiresClause);
+  if (TotalAC) {
     ConstrainedTemplateDeclInfo *CTDI = new (C) ConstrainedTemplateDeclInfo;
-    CTDI->setAssociatedConstraints(AssociatedConstraints);
+    CTDI->setAssociatedConstraints(TotalAC);
     CTDI->setTemplateParameters(Params);
     return CTDI;
   }
@@ -172,12 +187,14 @@ getOrCollectAssociatedConstraints(ASTContext& C,
                                   llvm::PointerIntPair<
                                     llvm::PointerUnion<TemplateParameterList *,
                                                  ConstrainedTemplateDeclInfo *>,
-                                    1, bool>& TemplateParamsMember) {
+                                    1, bool>& TemplateParamsMember,
+                                  Expr *TrailingRequiresClause = nullptr) {
   if (!TemplateParamsMember.getInt()) {
     TemplateParamsMember.setInt(true);
     ConstrainedTemplateDeclInfo *CTDI =
       collectAssociatedConstraints(C, TemplateParamsMember.getPointer()
-                                        .get<TemplateParameterList*>());
+                                        .get<TemplateParameterList*>(),
+                                   TrailingRequiresClause);
     if (CTDI) {
       TemplateParamsMember.setPointer(CTDI);
       return CTDI->getAssociatedConstraints();
@@ -201,8 +218,11 @@ TemplateDecl::TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L,
 
 
 Expr *TemplateDecl::getAssociatedConstraints() {
-  return getOrCollectAssociatedConstraints(getASTContext(),
-                        cast<TemplateDecl>(getCanonicalDecl())->TemplateParams);
+  FunctionDecl *Func = dyn_cast_or_null<FunctionDecl>(TemplatedDecl);
+  return getOrCollectAssociatedConstraints(
+            getASTContext(),
+            cast<TemplateDecl>(getCanonicalDecl())->TemplateParams,
+            Func ? Func->getTrailingRequiresClause() : nullptr);
 }
 
 void TemplateDecl::anchor() {}

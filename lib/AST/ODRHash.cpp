@@ -320,6 +320,7 @@ public:
     }
 
     AddQualType(D->getReturnType());
+    AddStmt(D->getTrailingRequiresClause());
 
     Inherited::VisitFunctionDecl(D);
   }

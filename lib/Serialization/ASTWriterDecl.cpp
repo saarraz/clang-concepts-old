@@ -538,6 +538,10 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->IsLateTemplateParsed);
   Record.push_back(D->getLinkageInternal());
   Record.AddSourceLocation(D->getLocEnd());
+  Expr *RC = D->getTrailingRequiresClause();
+  Record.push_back(RC != nullptr);
+  if (RC)
+    Record.AddStmt(RC);
 
   Record.push_back(D->getTemplatedKind());
   switch (D->getTemplatedKind()) {

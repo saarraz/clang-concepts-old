@@ -1634,6 +1634,17 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
       return nullptr;
   }
 
+  Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
+  if (TrailingRequiresClause) {
+    ExprResult SubstRC = SemaRef.SubstExpr(TrailingRequiresClause,
+                                           TemplateArgs);
+    if (!SubstRC.isUsable() || SubstRC.isInvalid())
+      return nullptr;
+    TrailingRequiresClause = SubstRC.get();
+    if (!SemaRef.CheckConstraintExpression(TrailingRequiresClause))
+      return nullptr;
+  }
+
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
   // context.
@@ -1691,6 +1702,9 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
     if (Params[P])
       Params[P]->setOwningFunction(Function);
   Function->setParams(Params);
+
+  if (TrailingRequiresClause)
+    Function->setTrailingRequiresClause(TrailingRequiresClause);
 
   if (TemplateParams) {
     // Our resulting instantiation is actually a function template, since we
@@ -1944,6 +1958,17 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
       return nullptr;
   }
 
+  Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
+  if (TrailingRequiresClause) {
+    ExprResult SubstRC = SemaRef.SubstExpr(TrailingRequiresClause,
+                                           TemplateArgs);
+    if (!SubstRC.isUsable() || SubstRC.isInvalid())
+      return nullptr;
+    TrailingRequiresClause = SubstRC.get();
+    if (!SemaRef.CheckConstraintExpression(TrailingRequiresClause))
+      return nullptr;
+  }
+
   DeclContext *DC = Owner;
   if (isFriend) {
     if (QualifierLoc) {
@@ -1973,13 +1998,15 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
                                         StartLoc, NameInfo, T, TInfo,
                                         Constructor->isExplicit(),
                                         Constructor->isInlineSpecified(),
-                                        false, Constructor->isConstexpr());
+                                        false, Constructor->isConstexpr(),
+                                        InheritedConstructor(),
+                                        TrailingRequiresClause);
     Method->setRangeEnd(Constructor->getLocEnd());
   } else if (CXXDestructorDecl *Destructor = dyn_cast<CXXDestructorDecl>(D)) {
     Method = CXXDestructorDecl::Create(SemaRef.Context, Record,
                                        StartLoc, NameInfo, T, TInfo,
                                        Destructor->isInlineSpecified(),
-                                       false);
+                                       false, TrailingRequiresClause);
     Method->setRangeEnd(Destructor->getLocEnd());
   } else if (CXXConversionDecl *Conversion = dyn_cast<CXXConversionDecl>(D)) {
     Method = CXXConversionDecl::Create(SemaRef.Context, Record,
@@ -1987,13 +2014,15 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
                                        Conversion->isInlineSpecified(),
                                        Conversion->isExplicit(),
                                        Conversion->isConstexpr(),
-                                       Conversion->getLocEnd());
+                                       Conversion->getLocEnd(),
+                                       TrailingRequiresClause);
   } else {
     StorageClass SC = D->isStatic() ? SC_Static : SC_None;
     Method = CXXMethodDecl::Create(SemaRef.Context, Record,
                                    StartLoc, NameInfo, T, TInfo,
                                    SC, D->isInlineSpecified(),
-                                   D->isConstexpr(), D->getLocEnd());
+                                   D->isConstexpr(), D->getLocEnd(),
+                                   TrailingRequiresClause);
   }
 
   if (D->isInlined())
