@@ -2549,6 +2549,12 @@ void StmtPrinter::VisitCXXFoldExpr(CXXFoldExpr *E) {
   OS << ")";
 }
 
+void StmtPrinter::VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) {
+  OS << E->getNamedConcept()->getName();
+  printTemplateArgumentList(OS, E->getTemplateArgumentListInfo()->arguments(),
+                            Policy);
+}
+
 // C++ Coroutines TS
 
 void StmtPrinter::VisitCoroutineBodyStmt(CoroutineBodyStmt *S) {

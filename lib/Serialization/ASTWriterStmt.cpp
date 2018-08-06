@@ -344,6 +344,17 @@ void ASTStmtWriter::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
   Code = serialization::EXPR_DEPENDENT_COAWAIT;
 }
 
+void ASTStmtWriter::VisitConceptSpecializationExpr(
+        ConceptSpecializationExpr *E) {
+  VisitExpr(E);
+  Record.AddDeclRef(E->getNamedConcept());
+  Record.AddSourceLocation(E->getConceptNameLoc());
+  Record.AddASTTemplateArgumentListInfo(E->getTemplateArgumentListInfo());
+  Record.push_back(E->isSatisfied());
+  Code = serialization::EXPR_CONCEPT_SPECIALIZATION;
+}
+
+
 void ASTStmtWriter::VisitCapturedStmt(CapturedStmt *S) {
   VisitStmt(S);
   // NumCaptures

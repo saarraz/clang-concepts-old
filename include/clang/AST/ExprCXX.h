@@ -57,6 +57,8 @@ class IdentifierInfo;
 class LambdaCapture;
 class NonTypeTemplateParmDecl;
 class TemplateParameterList;
+class ConceptDecl;
+class Sema;
 
 //===--------------------------------------------------------------------===//
 // C++ Expressions.
@@ -4404,6 +4406,92 @@ public:
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CoyieldExprClass;
+  }
+};
+
+/// \brief Represents the specialization of a concept - evaluates to a prvalue
+/// of type bool.
+///
+/// According to C++2a [expr.prim.id]p3 an id-expression that denotes the
+/// specialization of a concept results in a prvalue of type bool.
+class ConceptSpecializationExpr final : public Expr {
+protected:
+  /// \brief The concept named.
+  ConceptDecl *NamedConcept;
+
+  /// \brief The template argument list used to specialize the concept.
+  TemplateArgumentList *TemplateArgs;
+  const ASTTemplateArgumentListInfo *TemplateArgInfo;
+
+  /// \brief The location of the concept name in the expression.
+  SourceLocation ConceptNameLoc;
+
+  /// \brief Whether or not the concept with the given arguments was satisfied
+  /// when the expression was created. If any of the template arguments are
+  /// dependent (this expr would then be isValueDependent()), this is to be
+  /// ignored.
+  bool IsSatisfied : 1;
+
+public:
+  ConceptSpecializationExpr(ASTContext &C, Sema &S,
+                            SourceLocation ConceptNameLoc, ConceptDecl *CD,
+                            const TemplateArgumentListInfo *TALI);
+
+  ConceptSpecializationExpr(ASTContext &C, EmptyShell Empty);
+
+  ConceptDecl *getNamedConcept() {
+    return NamedConcept;
+  }
+  const ConceptDecl *getNamedConcept() const {
+    return NamedConcept;
+  }
+  void setNamedConcept(ConceptDecl *C) {
+    NamedConcept = C;
+  }
+
+  const TemplateArgumentList *getTemplateArguments() const {
+    return TemplateArgs;
+  }
+  const ASTTemplateArgumentListInfo *getTemplateArgumentListInfo() const {
+    return TemplateArgInfo;
+  }
+
+  /// \brief Set new template arguments for this concept specialization. Returns
+  /// true if an error occured (the template arguments do not match the concept,
+  /// probably)
+  bool setTemplateArguments(ASTContext &C, Sema *S,
+                            const TemplateArgumentListInfo *TALI);
+
+  /// \brief Whether or not the concept with the given arguments was satisfied
+  /// when the expression was created. This method assumes that the expression
+  /// is not dependent!
+  bool isSatisfied() const {
+    assert(!isValueDependent()
+           && "isSatisfied called on a dependent ConceptSpecializationExpr");
+    return IsSatisfied;
+  }
+
+  void setSatisfied(bool Satisfied) {
+    IsSatisfied = Satisfied;
+  }
+
+  SourceLocation getConceptNameLoc() const { return ConceptNameLoc; }
+  void setConceptNameLoc(SourceLocation Loc) {
+    ConceptNameLoc = Loc;
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == ConceptSpecializationExprClass;
+  }
+
+  SourceLocation getLocStart() const LLVM_READONLY { return ConceptNameLoc; }
+  SourceLocation getLocEnd() const LLVM_READONLY {
+    return TemplateArgInfo->RAngleLoc;
+  }
+
+  // Iterators
+  child_range children() {
+    return child_range(child_iterator(), child_iterator());
   }
 };
 

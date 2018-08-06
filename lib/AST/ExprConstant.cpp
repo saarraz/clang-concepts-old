@@ -7074,6 +7074,7 @@ public:
   bool VisitCXXNoexceptExpr(const CXXNoexceptExpr *E);
   bool VisitSizeOfPackExpr(const SizeOfPackExpr *E);
 
+  bool VisitConceptSpecializationExpr(const ConceptSpecializationExpr *E);
   // FIXME: Missing: array subscript of vector, member of vector
 };
 } // end anonymous namespace
@@ -9079,6 +9080,15 @@ bool IntExprEvaluator::VisitCXXNoexceptExpr(const CXXNoexceptExpr *E) {
   return Success(E->getValue(), E);
 }
 
+bool IntExprEvaluator::VisitConceptSpecializationExpr(
+       const ConceptSpecializationExpr *E) {
+  if (E->isValueDependent()) {
+    return Error(E);
+  }
+  return Success(E->isSatisfied(), E);
+}
+
+
 //===----------------------------------------------------------------------===//
 // Float Evaluation
 //===----------------------------------------------------------------------===//
@@ -10368,6 +10378,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CXXBoolLiteralExprClass:
   case Expr::CXXScalarValueInitExprClass:
   case Expr::TypeTraitExprClass:
+  case Expr::ConceptSpecializationExprClass:
   case Expr::ArrayTypeTraitExprClass:
   case Expr::ExpressionTraitExprClass:
   case Expr::CXXNoexceptExprClass:

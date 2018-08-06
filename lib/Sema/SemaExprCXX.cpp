@@ -7678,3 +7678,12 @@ Sema::CheckMicrosoftIfExistsSymbol(Scope *S, SourceLocation KeywordLoc,
 
   return CheckMicrosoftIfExistsSymbol(S, SS, TargetNameInfo);
 }
+
+
+ExprResult
+Sema::CreateConceptSpecializationExpr(SourceLocation ConceptNameLoc,
+                                      ConceptDecl *CTD,
+                                      const TemplateArgumentListInfo *TALI) {
+  return new (Context) ConceptSpecializationExpr(Context, *this, ConceptNameLoc,
+                                                 CTD, TALI);
+}

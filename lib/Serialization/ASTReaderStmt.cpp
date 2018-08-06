@@ -610,6 +610,20 @@ void ASTStmtReader::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) {
   E->setRParenLoc(ReadSourceLocation());
 }
 
+void ASTStmtReader::VisitConceptSpecializationExpr(
+        ConceptSpecializationExpr *E) {
+  VisitExpr(E);
+  E->setNamedConcept(ReadDeclAs<ConceptDecl>());
+  E->setConceptNameLoc(Record.readSourceLocation());
+  const ASTTemplateArgumentListInfo *Info =
+      Record.readASTTemplateArgumentListInfo();
+  TemplateArgumentListInfo TALI(Info->LAngleLoc, Info->RAngleLoc);
+  for (const TemplateArgumentLoc &Arg : Info->arguments())
+    TALI.addArgument(Arg);
+  E->setTemplateArguments(Record.getContext(), /*Sema=*/nullptr, &TALI);
+  E->setSatisfied(Record.readInt() == 1);
+}
+
 void ASTStmtReader::VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
   VisitExpr(E);
   E->setLHS(Record.readSubExpr());
@@ -4033,6 +4047,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) DependentCoawaitExpr(Empty);
       break;
 
+    case EXPR_CONCEPT_SPECIALIZATION:
+      S = new (Context) ConceptSpecializationExpr(Context, Empty);
+      break;
     }
 
     // We hit a STMT_STOP, so we're done with this expression.

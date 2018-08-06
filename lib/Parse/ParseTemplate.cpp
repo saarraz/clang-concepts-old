@@ -372,8 +372,7 @@ Parser::ParseConceptDefinition(unsigned Context,
 
   ExprResult ConstraintExprResult = ParseConstraintExpression();
   if (ConstraintExprResult.isInvalid()) {
-    Diag(Tok.getLocation(), diag::err_expected_expression)
-      << "constraint-expression";
+    // ParseConstraintExpression will have given a sufficient diagnostic.
     return nullptr;
   }
 

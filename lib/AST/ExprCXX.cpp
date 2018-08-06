@@ -29,6 +29,9 @@
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Sema/Template.h"
+#include "clang/Sema/SemaDiagnostic.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1433,3 +1436,124 @@ TypeTraitExpr *TypeTraitExpr::CreateDeserialized(const ASTContext &C,
 }
 
 void ArrayTypeTraitExpr::anchor() {}
+
+ConceptSpecializationExpr::ConceptSpecializationExpr(
+    ASTContext &C, Sema &S, SourceLocation ConceptNameLoc, ConceptDecl *CD,
+    const TemplateArgumentListInfo *TALI)
+    : Expr(ConceptSpecializationExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
+           /*TypeDependent=*/false,
+           // All the flags below are set in setTemplateArguments.
+           /*ValueDependent=*/false, /*InstantiationDependent=*/false,
+           /*ContainsUnexpandedParameterPacks=*/false),
+      NamedConcept(CD), ConceptNameLoc(ConceptNameLoc) {
+  setTemplateArguments(C, &S, TALI);
+}
+
+ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
+                                                     EmptyShell Empty)
+  : Expr(ConceptSpecializationExprClass, Empty) { }
+
+
+static bool
+calculateConstraintSatisfaction(Sema& S, MultiLevelTemplateArgumentList &MLTAL,
+                                Expr *ConstraintExpr, bool &IsSatisfied) {
+  if (auto *BO = dyn_cast<BinaryOperator>(ConstraintExpr)) {
+    if (BO->getOpcode() == BO_LAnd) {
+      if (calculateConstraintSatisfaction(S, MLTAL, BO->getLHS(), IsSatisfied))
+        return true;
+      if (!IsSatisfied)
+        return false;
+      return calculateConstraintSatisfaction(S, MLTAL, BO->getRHS(),
+                                             IsSatisfied);
+    } else if (BO->getOpcode() == BO_LOr) {
+      if (calculateConstraintSatisfaction(S, MLTAL, BO->getLHS(), IsSatisfied))
+        return true;
+      if (IsSatisfied)
+        return false;
+      return calculateConstraintSatisfaction(S, MLTAL, BO->getRHS(),
+                                             IsSatisfied);
+    }
+  } else if (auto *PO = dyn_cast<ParenExpr>(ConstraintExpr))
+    return calculateConstraintSatisfaction(S, MLTAL, PO->getSubExpr(),
+                                           IsSatisfied);
+
+  EnterExpressionEvaluationContext ConstantEvaluated(
+          S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+
+  // Atomic constraint - substitute arguments and check satisfaction.
+  ExprResult E;
+  {
+    // We do not want error diagnostics escaping here.
+    Sema::SFINAETrap Trap(S);
+    E = S.SubstExpr(ConstraintExpr, MLTAL);
+    if (E.isInvalid() || Trap.hasErrorOccurred()) {
+      // C++2a [temp.constr.atomic]p1
+      //   ...If substitution results in an invalid type or expression, the
+      //   constraint is not satisfied.
+      IsSatisfied = false;
+      return false;
+    }
+  }
+
+  if (!S.CheckConstraintExpression(E.get())) {
+    return true;
+  }
+
+  if (!E.get()->EvaluateAsBooleanCondition(IsSatisfied, S.Context)) {
+      // C++2a [temp.constr.atomic]p1
+      //   ...E shall be a constant expression of type bool.
+    S.Diag(E.get()->getLocStart(),
+           diag::err_non_constant_constraint_expression) << E.get();
+    return true;
+  }
+
+  return false;
+}
+
+bool ConceptSpecializationExpr::setTemplateArguments(ASTContext &C, Sema *S,
+                                          const TemplateArgumentListInfo *TALI){
+  TemplateArgInfo = ASTTemplateArgumentListInfo::Create(C, *TALI);
+  bool IsDependent = false;
+  bool ContainsUnexpandedParameterPack = false;
+  for (const TemplateArgumentLoc& LocInfo : TALI->arguments()) {
+    if (LocInfo.getArgument().isInstantiationDependent()) {
+      IsDependent = true;
+      if (ContainsUnexpandedParameterPack)
+        break;
+    }
+    if (LocInfo.getArgument().containsUnexpandedParameterPack()) {
+      ContainsUnexpandedParameterPack = true;
+      if (IsDependent)
+        break;
+    }
+  }
+  setValueDependent(IsDependent);
+  setInstantiationDependent(IsDependent);
+  setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
+  if (IsDependent || !S)
+    return false;
+
+  llvm::SmallVector<TemplateArgument, 4> Converted;
+  if (S->CheckTemplateArgumentList(NamedConcept, NamedConcept->getLocStart(),
+                                  const_cast<TemplateArgumentListInfo&>(*TALI),
+                                  /*PartialTemplateArgs=*/false, Converted,
+                                  /*UpdateArgsWithConversion=*/false))
+    // We converted these arguments back in CheckConceptTemplateId, this should
+    // work.
+    return true;
+
+  MultiLevelTemplateArgumentList MLTAL;
+  MLTAL.addOuterTemplateArguments(Converted);
+
+  bool IsSatisfied;
+  if (calculateConstraintSatisfaction(*S, MLTAL,
+                                      NamedConcept->getConstraintExpr(),
+                                      IsSatisfied)) {
+    S->Diag(getLocStart(),
+            diag::note_in_concept_specialization) << this;
+    return true;
+  }
+
+  this->IsSatisfied = IsSatisfied;
+  return false;
+}

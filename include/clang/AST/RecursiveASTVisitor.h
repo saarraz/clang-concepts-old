@@ -2585,6 +2585,12 @@ DEF_TRAVERSE_STMT(CoyieldExpr, {
   }
 })
 
+DEF_TRAVERSE_STMT(ConceptSpecializationExpr, {
+  TRY_TO(TraverseTemplateArgumentLocsHelper(
+          S->getTemplateArgumentListInfo()->getTemplateArgs(),
+          S->getTemplateArgumentListInfo()->NumTemplateArgs));
+})
+
 // These literals (all of them) do not need any action.
 DEF_TRAVERSE_STMT(IntegerLiteral, {})
 DEF_TRAVERSE_STMT(CharacterLiteral, {})

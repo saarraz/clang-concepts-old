@@ -1233,6 +1233,14 @@ void StmtProfiler::VisitAtomicExpr(const AtomicExpr *S) {
   ID.AddInteger(S->getOp());
 }
 
+void StmtProfiler::VisitConceptSpecializationExpr(
+                                           const ConceptSpecializationExpr *S) {
+  VisitExpr(S);
+  VisitDecl(S->getNamedConcept());
+  VisitTemplateArguments(S->getTemplateArgumentListInfo()->getTemplateArgs(),
+                         S->getTemplateArgumentListInfo()->NumTemplateArgs);
+}
+
 static Stmt::StmtClass DecodeOperatorCall(const CXXOperatorCallExpr *S,
                                           UnaryOperatorKind &UnaryOp,
                                           BinaryOperatorKind &BinaryOp) {

@@ -5572,7 +5572,16 @@ public:
                                            CXXConversionDecl *Conv,
                                            Expr *Src);
 
-  // ParseObjCStringLiteral - Parse Objective-C string literals.
+  ExprResult
+  CreateConceptSpecializationExpr(SourceLocation ConceptNameLoc,
+                                  ConceptDecl *CD,
+                                  const TemplateArgumentListInfo *TALI);
+
+  /// Check whether the given expression is a valid constraint expression.
+  /// A diagnostic is emitted if it is not, and false is returned.
+  bool CheckConstraintExpression(Expr *CE);
+
+    // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,
                                     ArrayRef<Expr *> Strings);
 

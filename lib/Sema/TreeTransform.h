@@ -2940,7 +2940,22 @@ public:
                                   RParenLoc, Length, PartialArgs);
   }
 
-  /// \brief Build a new Objective-C boxed expression.
+  /// \brief Build a new concept specialization expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildConceptSpecializationExpr(SourceLocation ConceptNameLoc,
+                                              ConceptDecl *CTD,
+                                              TemplateArgumentListInfo *TALI) {
+    ExprResult Result
+            = getSema().CreateConceptSpecializationExpr(ConceptNameLoc, CTD,
+                                                        TALI);
+    if (Result.isInvalid())
+      return ExprError();
+    return Result;
+  }
+
+    /// \brief Build a new Objective-C boxed expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
@@ -10615,6 +10630,22 @@ TreeTransform<Derived>::TransformTypeTraitExpr(TypeTraitExpr *E) {
                                        Args,
                                        E->getLocEnd());
 }
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformConceptSpecializationExpr(
+                                                 ConceptSpecializationExpr *E) {
+  const ASTTemplateArgumentListInfo *Old = E->getTemplateArgumentListInfo();
+  TemplateArgumentListInfo TransArgs(Old->LAngleLoc, Old->RAngleLoc);
+  if (getDerived().TransformTemplateArguments(Old->getTemplateArgs(),
+                                              Old->NumTemplateArgs, TransArgs))
+    return ExprError();
+
+  return getDerived().RebuildConceptSpecializationExpr(E->getConceptNameLoc(),
+                                                       E->getNamedConcept(),
+                                                       &TransArgs);
+}
+
 
 template<typename Derived>
 ExprResult
