@@ -365,6 +365,11 @@ public:
       AddTemplateArgument(D->getDefaultArgument());
     }
 
+    Expr *CE = D->getConstraintExpression();
+    Hash.AddBoolean(CE != nullptr);
+    if (CE)
+      AddStmt(CE);
+
     Inherited::VisitTemplateTypeParmDecl(D);
   }
 
@@ -377,6 +382,11 @@ public:
       AddStmt(D->getDefaultArgument());
     }
 
+    Expr *CE = D->getConstraintExpression();
+    Hash.AddBoolean(CE != nullptr);
+    if (CE)
+      AddStmt(CE);
+
     Inherited::VisitNonTypeTemplateParmDecl(D);
   }
 
@@ -388,6 +398,11 @@ public:
     if (hasDefaultArgument) {
       AddTemplateArgument(D->getDefaultArgument().getArgument());
     }
+
+    Expr *CE = D->getConstraintExpression();
+    Hash.AddBoolean(CE != nullptr);
+    if (CE)
+      AddStmt(CE);
 
     Inherited::VisitTemplateTemplateParmDecl(D);
   }

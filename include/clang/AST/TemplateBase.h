@@ -586,6 +586,10 @@ public:
   void addArgument(const TemplateArgumentLoc &Loc) {
     Arguments.push_back(Loc);
   }
+
+  void prependArgument(const TemplateArgumentLoc &Loc) {
+    Arguments.insert(Arguments.begin(), Loc);
+  }
 };
 
 /// \brief Represents an explicit template argument list in C++, e.g.,

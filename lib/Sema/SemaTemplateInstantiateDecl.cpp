@@ -2181,7 +2181,12 @@ Decl *TemplateDeclInstantiator::VisitTemplateTypeParmDecl(
       D->getDepth() - TemplateArgs.getNumSubstitutedLevels(), D->getIndex(),
       D->getIdentifier(), D->wasDeclaredWithTypename(), D->isParameterPack());
   Inst->setAccess(AS_public);
-
+  if (Expr *CE = D->getConstraintExpression()) {
+    ExprResult Result = SemaRef.SubstExpr(CE, TemplateArgs);
+    if (Result.isInvalid())
+      return nullptr;
+    Inst->setConstraintExpression(Result.get());
+  }
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
     TypeSourceInfo *InstantiatedDefaultArg =
         SemaRef.SubstType(D->getDefaultArgumentInfo(), TemplateArgs,
@@ -2330,6 +2335,12 @@ Decl *TemplateDeclInstantiator::VisitNonTypeTemplateParmDecl(
   if (Invalid)
     Param->setInvalidDecl();
 
+  if (Expr *CE = D->getConstraintExpression()) {
+    ExprResult Result = SemaRef.SubstExpr(CE, TemplateArgs);
+    if (Result.isInvalid())
+      return nullptr;
+    Param->setConstraintExpression(Result.get());
+  }
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
     EnterExpressionEvaluationContext ConstantEvaluated(
         SemaRef, Sema::ExpressionEvaluationContext::ConstantEvaluated);
@@ -2454,6 +2465,12 @@ TemplateDeclInstantiator::VisitTemplateTemplateParmDecl(
         SemaRef.Context, Owner, D->getLocation(),
         D->getDepth() - TemplateArgs.getNumSubstitutedLevels(),
         D->getPosition(), D->isParameterPack(), D->getIdentifier(), InstParams);
+  if (Expr *CE = D->getConstraintExpression()) {
+    ExprResult Result = SemaRef.SubstExpr(CE, TemplateArgs);
+    if (Result.isInvalid())
+      return nullptr;
+    Param->setConstraintExpression(Result.get());
+  }
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
     NestedNameSpecifierLoc QualifierLoc =
         D->getDefaultArgument().getTemplateQualifierLoc();
@@ -3262,10 +3279,7 @@ TemplateDeclInstantiator::InstantiateClassTemplatePartialSpecialization(
   void *InsertPos = nullptr;
   ClassTemplateSpecializationDecl *PrevDecl
     = ClassTemplate->findPartialSpecialization(Converted,
-                                               // TODO: Concepts - change this
-                                               // to associated constraints once
-                                               // we have them.
-                                               InstParams->getRequiresClause(),
+                                         InstParams->getAssociatedConstraints(),
                                                InsertPos);
 
   // Build the canonical type that describes the converted template
@@ -3398,10 +3412,7 @@ TemplateDeclInstantiator::InstantiateVarTemplatePartialSpecialization(
   void *InsertPos = nullptr;
   VarTemplateSpecializationDecl *PrevDecl =
       VarTemplate->findPartialSpecialization(Converted,
-                                             // TODO: Concepts - change this
-                                             // to associated constraints once
-                                             // we have them.
-                                             InstParams->getRequiresClause(),
+                                         InstParams->getAssociatedConstraints(),
                                              InsertPos);
 
   // Build the canonical type that describes the converted template

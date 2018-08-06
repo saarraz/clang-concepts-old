@@ -5327,7 +5327,8 @@ public:
                                    NamedDecl *ScopeLookupResult,
                                    bool ErrorRecoveryLookup,
                                    bool *IsCorrectedToColon = nullptr,
-                                   bool OnlyNamespace = false);
+                                   bool OnlyNamespace = false,
+                                   bool SuppressDiagnostics = false);
 
   /// \brief The parser has parsed a nested-name-specifier 'identifier::'.
   ///
@@ -5353,6 +5354,8 @@ public:
   ///
   /// \param OnlyNamespace If true, only considers namespaces in lookup.
   ///
+  /// \param SuppressDiagnostic If true, suppress diagnostic on error.
+  ///
   /// \returns true if an error occurred, false otherwise.
   bool ActOnCXXNestedNameSpecifier(Scope *S,
                                    NestedNameSpecInfo &IdInfo,
@@ -5360,7 +5363,8 @@ public:
                                    CXXScopeSpec &SS,
                                    bool ErrorRecoveryLookup = false,
                                    bool *IsCorrectedToColon = nullptr,
-                                   bool OnlyNamespace = false);
+                                   bool OnlyNamespace = false,
+                                   bool SuppressDiagnostic = false);
 
   ExprResult ActOnDecltypeExpression(Expr *E);
 
@@ -5658,8 +5662,8 @@ public:
   void DiagnoseUnsatisfiedIllFormedConstraint(SourceLocation DiagnosticLocation,
                                               StringRef Diagnostic);
 
-  void DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
-                                              const TemplateParameterList *New);
+  void DiagnoseRedeclarationConstraintMismatch(SourceLocation Old,
+                                               SourceLocation New);
 
   // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,
@@ -6166,11 +6170,17 @@ public:
                                              SourceLocation Loc);
   QualType CheckNonTypeTemplateParameterType(QualType T, SourceLocation Loc);
 
-  Decl *ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
+  Decl *ActOnNonTypeTemplateParameter(Scope *S,
+                                      const DeclSpec &DS,
+                                      SourceLocation StartLoc,
+                                      TypeSourceInfo *TInfo,
+                                      IdentifierInfo *ParamName,
+                                      SourceLocation ParamNameLoc,
+                                      bool IsParameterPack,
                                       unsigned Depth,
                                       unsigned Position,
                                       SourceLocation EqualLoc,
-                                      Expr *DefaultArg);
+                                      Expr *Default);
   Decl *ActOnTemplateTemplateParameter(Scope *S,
                                        SourceLocation TmpLoc,
                                        TemplateParameterList *Params,
@@ -6277,9 +6287,7 @@ public:
                                 const TemplateArgumentListInfo *TemplateArgs);
 
   ExprResult
-  CheckConceptTemplateId(const CXXScopeSpec &SS,
-                         const DeclarationNameInfo &NameInfo,
-                         ConceptDecl *Template,
+  CheckConceptTemplateId(const CXXScopeSpec &SS, ConceptDecl *Template,
                          SourceLocation TemplateLoc,
                          const TemplateArgumentListInfo *TemplateArgs);
 

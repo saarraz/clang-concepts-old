@@ -750,6 +750,10 @@ bool CursorVisitor::VisitClassTemplatePartialSpecializationDecl(
 }
 
 bool CursorVisitor::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
+  if (Expr *CE = D->getConstraintExpression())
+    if (Visit(MakeCXCursor(CE, StmtParent, TU, RegionOfInterest)))
+      return true;
+
   // Visit the default argument.
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     if (TypeSourceInfo *DefArg = D->getDefaultArgumentInfo())
@@ -898,6 +902,10 @@ bool CursorVisitor::VisitVarDecl(VarDecl *D) {
 bool CursorVisitor::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
   if (VisitDeclaratorDecl(D))
     return true;
+
+  if (Expr *CE = D->getConstraintExpression())
+    if (Visit(MakeCXCursor(CE, StmtParent, TU, RegionOfInterest)))
+      return true;
   
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     if (Expr *DefArg = D->getDefaultArgument())
@@ -929,7 +937,11 @@ bool CursorVisitor::VisitClassTemplateDecl(ClassTemplateDecl *D) {
 bool CursorVisitor::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
   if (VisitTemplateParameters(D->getTemplateParameters()))
     return true;
-  
+
+  if (Expr *CE = D->getConstraintExpression())
+    if (Visit(MakeCXCursor(CE, StmtParent, TU, RegionOfInterest)))
+      return true;
+
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited() &&
       VisitTemplateArgumentLoc(D->getDefaultArgument()))
     return true;

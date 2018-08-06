@@ -699,8 +699,8 @@ ASTContext::getCanonicalTemplateTemplateParmDecl(
                                            cast<TemplateTemplateParmDecl>(*P)));
   }
 
-  assert(!TTP->getTemplateParameters()->getRequiresClause() &&
-         "Unexpected requires-clause on template template-parameter");
+  assert(!TTP->getAssociatedConstraints() &&
+         "Unexpected constraints on template template-parameter");
   Expr *const CanonRequiresClause = nullptr;
 
   TemplateTemplateParmDecl *CanonTTP
