@@ -232,6 +232,7 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::CoroutineBodyStmtClass:
   case Stmt::CoawaitExprClass:
   case Stmt::ConceptSpecializationExprClass:
+  case Stmt::RequiresExprClass:
   case Stmt::DependentCoawaitExprClass:
   case Stmt::CoreturnStmtClass:
   case Stmt::CoyieldExprClass:

@@ -2555,6 +2555,102 @@ void StmtPrinter::VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) {
                             Policy);
 }
 
+void StmtPrinter::VisitRequiresExpr(RequiresExpr *E) {
+  OS << "requires ";
+  auto LocalParameters = E->getLocalParameters();
+  if (!LocalParameters.empty()) {
+    OS << "(";
+    for (ParmVarDecl *LocalParam : LocalParameters) {
+      PrintRawDecl(LocalParam);
+      if (LocalParam != LocalParameters.back())
+        OS << ", ";
+    }
+
+    OS << ") ";
+  }
+  OS << "{ ";
+  auto Requirements = E->getRequirements();
+  for (Requirement *Req : Requirements) {
+    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req)) {
+      OS << "typename ";
+      if (TypeReq->isSubstitutionFailure())
+        OS << "<<error-type>>";
+      else
+        TypeReq->getType()->getType().print(OS, Policy);
+    } else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req)) {
+      if (ExprReq->isCompound())
+        OS << "{ ";
+      if (ExprReq->isExprSubstitutionFailure())
+        OS << "<<error-expression>>";
+      else
+        PrintExpr(ExprReq->getExpr());
+      if (ExprReq->isCompound()) {
+        OS << " }";
+        if (ExprReq->getNoexceptLoc().isValid())
+          OS << " noexcept";
+        const auto &RetReq = ExprReq->getReturnTypeRequirement();
+        if (!RetReq.isEmpty()) {
+          OS << " -> ";
+          if (RetReq.isSubstitutionFailure())
+            OS << "<<error-type>>";
+          else if (RetReq.isTrailingReturnType())
+            RetReq.getTrailingReturnTypeExpectedType()->getType().print(OS,
+                                                                        Policy);
+          else if (RetReq.isConstrainedParameter()) {
+            // This is kind of hacky - print out the type name, and replace its
+            // name with the constraint expr, omitting the first argument
+            // "const volatile <expr-type>&"
+            //  -> "const volatile ConstructibleWith<int>&"
+            // The invented template parameter should therefore have a
+            // non-user-typable name.
+            std::string ConstraintExprBuf;
+            llvm::raw_string_ostream ConstraintExprOS(ConstraintExprBuf);
+            auto *CSE = cast<ConceptSpecializationExpr>(
+                            RetReq.getConstrainedParamTemplateParameterList()
+                                ->getRequiresClause());
+            ConstraintExprOS << CSE->getNamedConcept()->getName();
+            if (CSE->getTemplateArgumentListInfo()->NumTemplateArgs > 1) {
+              ConstraintExprOS << "<";
+              for (unsigned I = 1,
+                   C = CSE->getTemplateArgumentListInfo()->NumTemplateArgs;
+                   I < C; ++I) {
+                CSE->getTemplateArgumentListInfo()->arguments()[I].getArgument()
+                    .print(Policy, ConstraintExprOS);
+                if (I != 1)
+                  ConstraintExprOS << ", ";
+              }
+              ConstraintExprOS << ">";
+            }
+            ConstraintExprOS.flush();
+
+            std::string ExpectedTypeBuf;
+            llvm::raw_string_ostream ExpectedTypeOS(ExpectedTypeBuf);
+            RetReq.getConstrainedParamExpectedType()->getType()
+                .print(ExpectedTypeOS, Policy);
+            ExpectedTypeOS.flush();
+            StringRef InventedParamName =
+                RetReq.getConstrainedParamTemplateParameterList()->getParam(0)
+                    ->getName();
+            ExpectedTypeBuf.replace(ExpectedTypeBuf.find(InventedParamName),
+                                    InventedParamName.size(),
+                                    ConstraintExprBuf);
+            OS << ExpectedTypeBuf;
+          }
+        }
+      }
+    } else {
+      auto *NestedReq = cast<NestedRequirement>(Req);
+      OS << "requires ";
+      if (NestedReq->isSubstitutionFailure())
+        OS << "<<error-expression>>";
+      else
+        PrintExpr(NestedReq->getConstraintExpr());
+    }
+    OS << "; ";
+  }
+  OS << "}";
+}
+
 // C++ Coroutines TS
 
 void StmtPrinter::VisitCoroutineBodyStmt(CoroutineBodyStmt *S) {

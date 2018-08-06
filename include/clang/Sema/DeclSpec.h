@@ -1757,8 +1757,9 @@ public:
     ConversionIdContext, // C++ conversion-type-id.
     TrailingReturnContext, // C++11 trailing-type-specifier.
     TemplateTypeArgContext, // Template type argument.
-    AliasDeclContext,    // C++11 alias-declaration.
-    AliasTemplateContext // C++11 alias-declaration template.
+    AliasDeclContext,     // C++11 alias-declaration.
+    AliasTemplateContext, // C++11 alias-declaration template.
+    RequiresExprContext   // C++2a requires-expression.
   };
 
 private:
@@ -1960,6 +1961,7 @@ public:
     case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
+    case RequiresExprContext:
       return true;
     }
     llvm_unreachable("unknown context kind!");
@@ -1982,6 +1984,7 @@ public:
     case TemplateParamContext:
     case CXXCatchContext:
     case ObjCCatchContext:
+    case RequiresExprContext:
       return true;
 
     case TypeNameContext:
@@ -2016,6 +2019,7 @@ public:
     case MemberContext:
     case PrototypeContext:
     case TemplateParamContext:
+    case RequiresExprContext:
       // Maybe one day...
       return false;
 
@@ -2089,6 +2093,7 @@ public:
     case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
+    case RequiresExprContext:
       return false;
     }
     llvm_unreachable("unknown context kind!");
@@ -2298,6 +2303,7 @@ public:
     case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
+    case RequiresExprContext:
       return false;
     }
     llvm_unreachable("unknown context kind!");
@@ -2326,6 +2332,7 @@ public:
     case LambdaExprContext:
     case ConversionIdContext:
     case TrailingReturnContext:
+    case RequiresExprContext:
       return false;
 
     case BlockContext:

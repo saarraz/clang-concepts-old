@@ -314,6 +314,7 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::Decomposition:
   case Decl::Binding:
   case Decl::Concept:
+  case Decl::RequiresExprBody:
     return false;
 
   // These indirectly derive from Redeclarable<T> but are not actually

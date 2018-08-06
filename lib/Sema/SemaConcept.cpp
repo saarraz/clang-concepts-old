@@ -11,8 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Sema/TemplateDeduction.h"
 #include "clang/Sema/Template.h"
+#include "clang/Sema/Overload.h"
+#include "clang/Sema/Initialization.h"
 #include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ExprCXX.h"
 #include "llvm/ADT/DenseMap.h"
@@ -353,6 +356,14 @@ static void diagnoseWellFormedUnsatisfiedConstraintExpr(Sema &S,
     }
     S.DiagnoseUnsatisfiedConstraint(CSE->getSatisfaction());
     return;
+  } else if (auto *RE = dyn_cast<RequiresExpr>(SubstExpr)) {
+    bool FirstReq = First;
+    for (Requirement *Req : RE->getRequirements())
+      if (!Req->isSatisfied()) {
+        Req->Diagnose(S, FirstReq);
+        FirstReq = false;
+      }
+    return;
   }
 
   S.Diag(SubstExpr->getSourceRange().getBegin(),
@@ -373,11 +384,11 @@ static void diagnoseUnsatisfiedConstraintExpr(
   diagnoseWellFormedUnsatisfiedConstraintExpr(S, Detail.get<Expr *>(), First);
 }
 
-void Sema::DiagnoseUnsatisfiedConstraint(
-    const ConstraintSatisfaction& Satisfaction) {
+void
+Sema::DiagnoseUnsatisfiedConstraint(const ConstraintSatisfaction& Satisfaction,
+                                    bool First) {
   assert(!Satisfaction.IsSatisfied &&
          "Attempted to diagnose a satisfied constraint");
-  bool First = true;
   for (auto &Pair : Satisfaction.Details) {
     diagnoseUnsatisfiedConstraintExpr(*this, Pair.first, Pair.second, First);
     First = false;
@@ -760,4 +771,298 @@ bool Sema::IsMoreConstrained(NamedDecl *D1, Expr *AC1, NamedDecl *D2,
   bool Subsumes = subsumes(*this, AC1, AC2);
   SubsumptionCache.try_emplace(Key, Subsumes);
   return Subsumes;
+}
+
+
+ExprRequirement::ExprRequirement(Sema &S, Expr *E, bool IsSimple,
+                                 SourceLocation NoexceptLoc,
+                                 ReturnTypeRequirement Req) :
+    Requirement(IsSimple ? RK_Simple : RK_Compound,
+                E->isInstantiationDependent() || Req.isDependent(),
+                E->containsUnexpandedParameterPack() ||
+                Req.containsUnexpandedParameterPack(), false), Value(E),
+    NoexceptLoc(NoexceptLoc), TypeReq(Req) {
+  assert((!IsSimple || (Req.isEmpty() && NoexceptLoc.isInvalid())) &&
+         "Simple requirement must not have a return type requirement or a "
+         "noexcept specification");
+  if (isDependent()) {
+    Status = SS_Dependent;
+    return;
+  }
+  if (NoexceptLoc.isValid() && S.canThrow(E) == CanThrowResult::CT_Can) {
+    Status = SS_NoexceptNotMet;
+    setSatisfied(false);
+    return;
+  }
+  Status = TypeReq.calculateSatisfaction(S, E);
+  setSatisfied(Status == SS_Satisfied);
+}
+
+ExprRequirement::ExprRequirement(Expr *E, bool IsSimple,
+                                 SourceLocation NoexceptLoc,
+                                 ReturnTypeRequirement Req,
+                                 SatisfactionStatus Status) :
+    Requirement(IsSimple ? RK_Simple : RK_Compound, Status == SS_Dependent,
+                Status == SS_Dependent &&
+                (E->containsUnexpandedParameterPack() ||
+                 Req.containsUnexpandedParameterPack()),
+                Status == SS_Satisfied), Value(E), NoexceptLoc(NoexceptLoc),
+    TypeReq(Req), Status(Status) {
+  assert((!IsSimple || (Req.isEmpty() && NoexceptLoc.isInvalid())) &&
+         "Simple requirement must not have a return type requirement or a "
+         "noexcept specification");
+}
+
+ExprRequirement::ExprRequirement(SubstitutionDiagnostic *ExprSubstDiag,
+                                 bool IsSimple, SourceLocation NoexceptLoc,
+                                 ReturnTypeRequirement Req) :
+    Requirement(IsSimple ? RK_Simple : RK_Compound, Req.isDependent(),
+                Req.containsUnexpandedParameterPack(), /*IsSatisfied=*/false),
+    Value(ExprSubstDiag), NoexceptLoc(NoexceptLoc), TypeReq(Req),
+    Status(SS_ExprSubstitutionFailure) {
+  assert((!IsSimple || (Req.isEmpty() && NoexceptLoc.isInvalid())) &&
+         "Simple requirement must not have a return type requirement or a "
+         "noexcept specification");
+}
+
+ExprRequirement::ReturnTypeRequirement::ReturnTypeRequirement(ASTContext &C,
+    TypeSourceInfo *ExpectedType) :
+    Dependent(ExpectedType->getType()->isInstantiationDependentType()),
+    ContainsUnexpandedParameterPack(
+        ExpectedType->getType()->containsUnexpandedParameterPack()),
+    Value(ExpectedType) {}
+
+class NonInventedTemplateParameterFinder :
+    public RecursiveASTVisitor<NonInventedTemplateParameterFinder> {
+public:
+  NonInventedTemplateParameterFinder(const TemplateTypeParmType *InventedType) :
+      InventedType(InventedType) {}
+
+  bool containsNonInventedTemplateParameter(QualType T) {
+    return !TraverseType(T);
+  }
+
+  bool containsNonInventedTemplateParameter(Expr *E) {
+    return !TraverseStmt(E);
+  }
+
+  bool TraverseTemplateTypeParmType(TemplateTypeParmType *T) {
+    return T == InventedType;
+  }
+
+private:
+  const TemplateTypeParmType *InventedType;
+};
+
+ExprRequirement::ReturnTypeRequirement::ReturnTypeRequirement(ASTContext &C,
+    TemplateParameterList *TPL, TypeSourceInfo *ExpectedType) :
+    Dependent(false),
+    ContainsUnexpandedParameterPack(
+        TPL->getRequiresClause()->containsUnexpandedParameterPack() ||
+        ExpectedType->getType()->containsUnexpandedParameterPack()),
+    Value(new (C) ConstrainedParam(ExpectedType, TPL, nullptr)) {
+  assert(TPL->size() == 1 &&
+         isa<ConceptSpecializationExpr>(TPL->getRequiresClause()) &&
+         "Provided template parameter list is ill-formed (must contain "
+         "exactly one type parameter and have a concept specialization "
+         "expression for a requires clause");
+  // TODO: Is this really necessary?
+  NonInventedTemplateParameterFinder Finder(
+      cast<TemplateTypeParmType>(
+          cast<TemplateTypeParmDecl>(TPL->getParam(0))->getTypeForDecl()));
+  Dependent = Finder.containsNonInventedTemplateParameter(ExpectedType
+                                                              ->getType()) ||
+      Finder.containsNonInventedTemplateParameter(TPL->getRequiresClause());
+}
+
+ExprRequirement::ReturnTypeRequirement::ReturnTypeRequirement(ASTContext &C,
+    TemplateParameterList *TPL, TypeSourceInfo *ExpectedType,
+    ConceptSpecializationExpr *CSE) :
+    Dependent(TPL->getRequiresClause()->isInstantiationDependent() ||
+              ExpectedType->getType()->isInstantiationDependentType()),
+    ContainsUnexpandedParameterPack(
+        TPL->getRequiresClause()->containsUnexpandedParameterPack() ||
+        ExpectedType->getType()->containsUnexpandedParameterPack()),
+    Value(new (C) ConstrainedParam(ExpectedType, TPL, CSE)) {}
+
+ExprRequirement::SatisfactionStatus
+ExprRequirement::ReturnTypeRequirement::calculateSatisfaction(Sema &S,
+    Expr *E) {
+  if (!Value)
+    return SS_Satisfied;
+  if (Value.is<SubstitutionDiagnostic *>())
+    return SS_TypeRequirementSubstitutionFailure;
+  if (auto *TypeReq = Value.dyn_cast<TypeSourceInfo *>()) {
+    if (E->getType() == TypeReq->getType())
+      return SS_Satisfied;
+    InitializedEntity InventedEntity =
+        InitializedEntity::InitializeResult(TypeReq->getTypeLoc().getLocStart(),
+                                            TypeReq->getType(), /*NRVO=*/false);
+    InitializationSequence Seq(S, InventedEntity,
+        InitializationKind::CreateCopy(E->getLocStart(),
+                                       TypeReq->getTypeLoc().getLocStart()), E);
+    if (Seq.isAmbiguous())
+      return SS_ImplicitConversionAmbiguous;
+    if (Seq.Failed())
+      return SS_NoImplicitConversionExists;
+    return SS_Satisfied;
+  }
+  auto *Constrained = Value.get<ConstrainedParam *>();
+  QualType MatchedType = S.matchTypeByDeduction(std::get<1>(*Constrained),
+      std::get<0>(*Constrained)->getType().getCanonicalType(), E);
+  if (MatchedType.isNull())
+    return SS_DeductionFailed;
+  llvm::SmallVector<TemplateArgument, 1> Args;
+  Args.push_back(TemplateArgument(MatchedType));
+  TemplateArgumentList TAL(TemplateArgumentList::OnStack, Args);
+  MultiLevelTemplateArgumentList MLTAL(TAL);
+  ExprResult Constraint = S.SubstExpr(
+      std::get<1>(*Constrained)->getRequiresClause(), MLTAL);
+  assert(!Constraint.isInvalid() && Constraint.isUsable() &&
+         "Substitution cannot fail as it is simply putting a type template "
+         "argument into a concept specialization expression's parameter.");
+
+  auto *CSE = cast<ConceptSpecializationExpr>(Constraint.get());
+  std::get<2>(*Constrained) = CSE;
+  if (!CSE->isSatisfied())
+    return SS_ConstraintsNotSatisfied;
+  return SS_Satisfied;
+}
+
+void ExprRequirement::Diagnose(Sema &S, bool First) const {
+  assert(!isSatisfied()
+         && "Diagnose() can only be used on an unsatisfied requirement");
+  switch (getSatisfactionStatus()) {
+  case SS_Dependent:
+    llvm_unreachable("Diagnosing a dependent requirement");
+    break;
+  case SS_ExprSubstitutionFailure: {
+    auto *SubstDiag = getExprSubstitutionDiagnostic();
+    S.Diag(SubstDiag->DiagLoc,
+           diag::note_expr_requirement_expr_substitution_error) << (int)First
+        << SubstDiag->SubstitutedEntity
+        << SubstDiag->DiagMessage;
+    break;
+  }
+  case SS_NoexceptNotMet:
+    S.Diag(getNoexceptLoc(), diag::note_expr_requirement_noexcept_not_met)
+        << (int)First << getExpr();
+    break;
+  case SS_TypeRequirementSubstitutionFailure: {
+    auto *SubstDiag = TypeReq.getSubstitutionDiagnostic();
+    S.Diag(SubstDiag->DiagLoc,
+           diag::note_expr_requirement_type_requirement_substitution_error)
+        << (int)First << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    break;
+  }
+  case SS_ImplicitConversionAmbiguous:
+    S.Diag(TypeReq.getTrailingReturnTypeExpectedType()
+               ->getTypeLoc().getLocStart(),
+           diag::note_expr_requirement_ambiguous_conversion) << (int)First
+        << getExpr()->getType()
+        << TypeReq.getTrailingReturnTypeExpectedType()
+            ->getType();
+    break;
+  case SS_NoImplicitConversionExists:
+    S.Diag(TypeReq.getTrailingReturnTypeExpectedType()
+               ->getTypeLoc().getLocStart(),
+           diag::note_expr_requirement_no_implicit_conversion) << (int)First
+        << getExpr()->getType()
+        << TypeReq.getTrailingReturnTypeExpectedType()
+            ->getType();
+    break;
+  case SS_DeductionFailed: {
+    std::string ExpectedTypeBuf;
+    llvm::raw_string_ostream ExpectedTypeOS(ExpectedTypeBuf);
+    TypeReq.getConstrainedParamExpectedType()->getType()
+        .print(ExpectedTypeOS, S.getPrintingPolicy());
+    ExpectedTypeOS.flush();
+    StringRef InventedParamName =
+        TypeReq.getConstrainedParamTemplateParameterList()->getParam(0)
+            ->getName();
+    ExpectedTypeBuf.replace(ExpectedTypeBuf.find(InventedParamName),
+                            InventedParamName.size(), "<type>");
+    S.Diag(TypeReq.getConstrainedParamExpectedType()
+               ->getTypeLoc().getLocStart(),
+           diag::note_expr_requirement_deduction_failed) << (int)First
+        << getExpr()->getType() << ExpectedTypeBuf;
+    break;
+  }
+  case SS_ConstraintsNotSatisfied: {
+    ConceptSpecializationExpr *ConstraintExpr =
+        TypeReq.getConstrainedParamConstraintExpr();
+    if (ConstraintExpr->getTemplateArgumentListInfo()->NumTemplateArgs == 1 &&
+        TypeReq.getConstrainedParamExpectedType()->getType()
+        == QualType(
+            cast<TemplateTypeParmDecl>(
+                TypeReq.getConstrainedParamTemplateParameterList()->getParam(0))
+                ->getTypeForDecl(), 0))
+      // A simple case - expr type is the type being constrained and the concept
+      // was not provided arguments.
+      S.Diag(ConstraintExpr->getLocStart(),
+           diag::note_expr_requirement_constraints_not_satisfied_simple)
+          << (int)First << getExpr()->getType()
+          << ConstraintExpr->getNamedConcept();
+    else
+      S.Diag(ConstraintExpr->getLocStart(),
+             diag::note_expr_requirement_constraints_not_satisfied)
+          << (int)First << ConstraintExpr;
+    S.DiagnoseUnsatisfiedConstraint(ConstraintExpr->getSatisfaction());
+    break;
+  }
+  case SS_Satisfied:
+    llvm_unreachable("We checked this above");
+  }
+}
+
+TypeRequirement::TypeRequirement(TypeSourceInfo *T) :
+    Requirement(RK_Type, T->getType()->isDependentType(),
+                T->getType()->containsUnexpandedParameterPack(),
+                /*IsSatisfied=*/true // We reach this ctor with either dependent
+                                     // types (in which IsSatisfied doesn't
+                                     // matter) or with non-dependent type in
+                                     // which the existance of the type
+                                     // indicates satisfaction.
+                ), Value(T),
+    Status(T->getType()->isDependentType() ? SS_Dependent : SS_Satisfied) {}
+
+void TypeRequirement::Diagnose(Sema &S, bool First) const {
+  assert(!isSatisfied()
+         && "Diagnose() can only be used on an unsatisfied requirement");
+  switch (getSatisfactionStatus()) {
+  case SS_Dependent:
+    llvm_unreachable("Diagnosing a dependent requirement");
+    return;
+  case SS_SubstitutionFailure: {
+    auto *SubstDiag = getSubstitutionDiagnostic();
+    S.Diag(SubstDiag->DiagLoc,
+           diag::note_type_requirement_substitution_error) << (int)First
+        << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    return;
+  }
+  default:
+    llvm_unreachable("Unknown satisfaction status");
+    return;
+  }
+}
+
+NestedRequirement::NestedRequirement(Sema &S, Expr *Constraint) :
+    Requirement(RK_Nested, Constraint->isInstantiationDependent(),
+                Constraint->containsUnexpandedParameterPack(),
+                /*Satisfied=*/false), Value(Constraint) {
+  if (isDependent())
+    return;
+  S.CheckConstraintSatisfaction(Constraint, Satisfaction);
+  setSatisfied(Satisfaction.IsSatisfied);
+}
+
+void NestedRequirement::Diagnose(Sema &S, bool First) const {
+  if (isSubstitutionFailure()) {
+    auto *SubstDiag = getSubstitutionDiagnostic();
+    S.Diag(SubstDiag->DiagLoc,
+           diag::note_nested_requirement_substitution_error) << (int)First
+        << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    return;
+  }
+  S.DiagnoseUnsatisfiedConstraint(Satisfaction, First);
 }

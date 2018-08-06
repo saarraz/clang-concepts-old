@@ -2082,6 +2082,8 @@ DEF_TRAVERSE_DECL(ParmVarDecl, {
     TRY_TO(TraverseStmt(D->getDefaultArg()));
 })
 
+DEF_TRAVERSE_DECL(RequiresExprBodyDecl, {})
+
 #undef DEF_TRAVERSE_DECL
 
 // ----------------- Stmt traversal -----------------
@@ -2601,6 +2603,34 @@ DEF_TRAVERSE_STMT(ConceptSpecializationExpr, {
   TRY_TO(TraverseTemplateArgumentLocsHelper(
           S->getTemplateArgumentListInfo()->getTemplateArgs(),
           S->getTemplateArgumentListInfo()->NumTemplateArgs));
+})
+
+DEF_TRAVERSE_STMT(RequiresExpr, {
+  TRY_TO(TraverseDecl(S->getBody()));
+  for (ParmVarDecl *Parm : S->getLocalParameters())
+    TRY_TO(TraverseDecl(Parm));
+  for (Requirement *Req : S->getRequirements())
+    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req)) {
+      if (!TypeReq->isSubstitutionFailure())
+        TRY_TO(TraverseTypeLoc(TypeReq->getType()->getTypeLoc()));
+    } else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req)) {
+      if (!ExprReq->isExprSubstitutionFailure())
+        TRY_TO(TraverseStmt(ExprReq->getExpr()));
+      auto &RetReq = ExprReq->getReturnTypeRequirement();
+      if (RetReq.isTrailingReturnType())
+        TRY_TO(TraverseTypeLoc(RetReq.getTrailingReturnTypeExpectedType()
+                                   ->getTypeLoc()));
+      else if (RetReq.isConstrainedParameter()) {
+        TRY_TO(TraverseTemplateParameterListHelper(
+                   RetReq.getConstrainedParamTemplateParameterList()));
+        TRY_TO(TraverseTypeLoc(RetReq.getConstrainedParamExpectedType()
+                                   ->getTypeLoc()));
+      }
+    } else {
+      auto *NestedReq = cast<NestedRequirement>(Req);
+      if (!NestedReq->isSubstitutionFailure())
+        TRY_TO(TraverseStmt(NestedReq->getConstraintExpr()));
+    }
 })
 
 // These literals (all of them) do not need any action.
