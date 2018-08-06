@@ -764,9 +764,10 @@ protected:
 
   void loadLazySpecializationsImpl() const;
 
-  template <class EntryType> typename SpecEntryTraits<EntryType>::DeclType*
+  template <class EntryType, typename... ProfileArguments>
+  typename SpecEntryTraits<EntryType>::DeclType*
   findSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
-                         ArrayRef<TemplateArgument> Args, void *&InsertPos);
+                         void *&InsertPos, ProfileArguments... ProfileArgs);
 
   template <class Derived, class EntryType>
   void addSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
@@ -1936,7 +1937,7 @@ public:
   /// including constraint-expressions derived from the requires-clause,
   /// trailing requires-clause (for functions and methods) and constrained
   /// template parameters.
-  Expr *getAssociatedConstraints();
+  Expr *getAssociatedConstraints() const;
 
   /// Get the template arguments as written.
   const ASTTemplateArgumentListInfo *getTemplateArgsAsWritten() const {
@@ -2020,7 +2021,22 @@ public:
              ->getInjectedSpecializationType();
   }
 
-  // FIXME: Add Profile support!
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
+            getASTContext());
+  }
+
+  static void
+  Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
+          Expr *AssociatedConstraints, ASTContext &Context) {
+    ID.AddInteger(TemplateArgs.size());
+    for (const TemplateArgument &TemplateArg : TemplateArgs)
+      TemplateArg.Profile(ID, Context);
+    ID.AddBoolean(AssociatedConstraints != nullptr);
+    if (AssociatedConstraints) {
+        AssociatedConstraints->Profile(ID, Context, /*Canonical=*/true);
+    }
+  }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
 
@@ -2145,7 +2161,8 @@ public:
   /// \brief Return the partial specialization with the provided arguments if it
   /// exists, otherwise return the insertion point.
   ClassTemplatePartialSpecializationDecl *
-  findPartialSpecialization(ArrayRef<TemplateArgument> Args, void *&InsertPos);
+  findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                            Expr *AssociatedConstraints, void *&InsertPos);
 
   /// \brief Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.
@@ -2780,7 +2797,7 @@ public:
   /// including constraint-expressions derived from the requires-clause,
   /// trailing requires-clause (for functions and methods) and constrained
   /// template parameters.
-  Expr *getAssociatedConstraints();
+  Expr *getAssociatedConstraints() const;
 
   /// \brief Retrieve the member variable template partial specialization from
   /// which this particular variable template partial specialization was
@@ -2844,6 +2861,23 @@ public:
     assert(First->InstantiatedFromMember.getPointer() &&
            "Only member templates can be member template specializations");
     return First->InstantiatedFromMember.setInt(true);
+  }
+
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
+            getASTContext());
+  }
+
+  static void
+  Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
+          Expr *AssociatedConstraints, ASTContext &Context) {
+    ID.AddInteger(TemplateArgs.size());
+    for (const TemplateArgument &TemplateArg : TemplateArgs)
+      TemplateArg.Profile(ID, Context);
+    ID.AddBoolean(AssociatedConstraints != nullptr);
+    if (AssociatedConstraints) {
+        AssociatedConstraints->Profile(ID, Context, /*Canonical=*/true);
+    }
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
@@ -2964,7 +2998,8 @@ public:
   /// \brief Return the partial specialization with the provided arguments if it
   /// exists, otherwise return the insertion point.
   VarTemplatePartialSpecializationDecl *
-  findPartialSpecialization(ArrayRef<TemplateArgument> Args, void *&InsertPos);
+  findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                            Expr *AssociatedConstraints, void *&InsertPos);
 
   /// \brief Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.

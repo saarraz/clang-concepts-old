@@ -3185,7 +3185,7 @@ Sema::TemplateDeductionResult Sema::FinishTemplateArgumentDeduction(
     return Result;
 
   if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, FunctionTemplate, DeducedArgs,
+        = CheckDeducedArgumentConstraints(*this, FunctionTemplate, Builder,
                                           Info))
     return Result;
 
@@ -4755,6 +4755,65 @@ static bool isAtLeastAsSpecializedAs(Sema &S,
   return true;
 }
 
+/// Determine whether one partial specialization, P1, is at least as
+/// specialized than another, P2, based on deduction checking.
+///
+/// \tparam TemplateLikeDecl The kind of P2, which must be a TemplateDecl or
+/// {Class,Var}TemplatePartialSpecializationDecl.
+/// \param T1 The injected-class-name of P1 (faked for a variable template).
+/// \param T2 The injected-class-name of P2 (faked for a variable template).
+template<typename TemplateLikeDecl>
+static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
+                                     TemplateLikeDecl *P2,
+                                     TemplateDeductionInfo &Info) {
+    // C++ [temp.class.order]p1:
+    //   For two class template partial specializations, the first is at least as
+    //   specialized as the second if, given the following rewrite to two
+    //   function templates, the first function template is at least as
+    //   specialized as the second according to the ordering rules for function
+    //   templates (14.6.6.2):
+    //     - the first function template has the same template parameters as the
+    //       first partial specialization and has a single function parameter
+    //       whose type is a class template specialization with the template
+    //       arguments of the first partial specialization, and
+    //     - the second function template has the same template parameters as the
+    //       second partial specialization and has a single function parameter
+    //       whose type is a class template specialization with the template
+    //       arguments of the second partial specialization.
+    //
+    // Rather than synthesize function templates, we merely perform the
+    // equivalent partial ordering by performing deduction directly on
+    // the template arguments of the class template partial
+    // specializations. This computation is slightly simpler than the
+    // general problem of function template partial ordering, because
+    // class template partial specializations are more constrained. We
+    // know that every template parameter is deducible from the class
+    // template partial specialization's template arguments, for
+    // example.
+    SmallVector<DeducedTemplateArgument, 4> Deduced;
+
+    // Determine whether P1 is at least as specialized as P2.
+    Deduced.resize(P2->getTemplateParameters()->size());
+    if (DeduceTemplateArgumentsByTypeMatch(S, P2->getTemplateParameters(),
+                                           T2, T1, Info, Deduced, TDF_None,
+            /*PartialOrdering=*/true))
+        return false;
+
+    SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(),
+                                                 Deduced.end());
+    Sema::InstantiatingTemplate Inst(S, Info.getLocation(), P2, DeducedArgs,
+                                     Info);
+    auto *TST1 = T1->castAs<TemplateSpecializationType>();
+    if (FinishTemplateArgumentDeduction(
+            S, P2, /*PartialOrdering=*/true,
+            TemplateArgumentList(TemplateArgumentList::OnStack,
+                                 TST1->template_arguments()),
+            Deduced, Info))
+        return false;
+
+    return true;
+}
+
 /// \brief Determine whether this a function template whose parameter-type-list
 /// ends with a function parameter pack.
 static bool isVariadicFunctionTemplate(FunctionTemplateDecl *FunTmpl) {
@@ -4801,6 +4860,21 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
                                  TemplatePartialOrderingContext TPOC,
                                  unsigned NumCallArguments1,
                                  unsigned NumCallArguments2) {
+
+  auto JudgeByConstraints = [&] () -> FunctionTemplateDecl * {
+    bool MoreConstrained1 = IsMoreConstrained(FT1,
+                                              FT1->getAssociatedConstraints(),
+                                              FT2,
+                                              FT2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(FT2,
+                                              FT2->getAssociatedConstraints(),
+                                              FT1,
+                                              FT1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2)
+      return nullptr;
+    return MoreConstrained1 ? FT1 : FT2;
+  };
+
   bool Better1 = isAtLeastAsSpecializedAs(*this, Loc, FT1, FT2, TPOC,
                                           NumCallArguments1);
   bool Better2 = isAtLeastAsSpecializedAs(*this, Loc, FT2, FT1, TPOC,
@@ -4810,7 +4884,7 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
     return Better1 ? FT1 : FT2;
 
   if (!Better1 && !Better2) // Neither is better than the other
-    return nullptr;
+    return JudgeByConstraints();
 
   // FIXME: This mimics what GCC implements, but doesn't match up with the
   // proposed resolution for core issue 692. This area needs to be sorted out,
@@ -4820,7 +4894,7 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
   if (Variadic1 != Variadic2)
     return Variadic1? FT2 : FT1;
 
-  return nullptr;
+  return JudgeByConstraints();
 }
 
 /// \brief Determine if the two templates are equivalent.
@@ -4934,66 +5008,6 @@ UnresolvedSetIterator Sema::getMostSpecialized(
   return SpecEnd;
 }
 
-/// Determine whether one partial specialization, P1, is at least as
-/// specialized than another, P2.
-///
-/// \tparam TemplateLikeDecl The kind of P2, which must be a
-/// TemplateDecl or {Class,Var}TemplatePartialSpecializationDecl.
-/// \param T1 The injected-class-name of P1 (faked for a variable template).
-/// \param T2 The injected-class-name of P2 (faked for a variable template).
-template<typename TemplateLikeDecl>
-static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
-                                     TemplateLikeDecl *P2,
-                                     TemplateDeductionInfo &Info) {
-  // TODO: Concepts: Regard constraints
-  // C++ [temp.class.order]p1:
-  //   For two class template partial specializations, the first is at least as
-  //   specialized as the second if, given the following rewrite to two
-  //   function templates, the first function template is at least as
-  //   specialized as the second according to the ordering rules for function
-  //   templates (14.6.6.2):
-  //     - the first function template has the same template parameters as the
-  //       first partial specialization and has a single function parameter
-  //       whose type is a class template specialization with the template
-  //       arguments of the first partial specialization, and
-  //     - the second function template has the same template parameters as the
-  //       second partial specialization and has a single function parameter
-  //       whose type is a class template specialization with the template
-  //       arguments of the second partial specialization.
-  //
-  // Rather than synthesize function templates, we merely perform the
-  // equivalent partial ordering by performing deduction directly on
-  // the template arguments of the class template partial
-  // specializations. This computation is slightly simpler than the
-  // general problem of function template partial ordering, because
-  // class template partial specializations are more constrained. We
-  // know that every template parameter is deducible from the class
-  // template partial specialization's template arguments, for
-  // example.
-  SmallVector<DeducedTemplateArgument, 4> Deduced;
-
-  // Determine whether P1 is at least as specialized as P2.
-  Deduced.resize(P2->getTemplateParameters()->size());
-  if (DeduceTemplateArgumentsByTypeMatch(S, P2->getTemplateParameters(),
-                                         T2, T1, Info, Deduced, TDF_None,
-                                         /*PartialOrdering=*/true))
-    return false;
-
-  SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(),
-                                               Deduced.end());
-  Sema::InstantiatingTemplate Inst(S, Info.getLocation(), P2, DeducedArgs,
-                                   Info);
-  auto *TST1 = T1->castAs<TemplateSpecializationType>();
-  if (FinishTemplateArgumentDeduction(
-          S, P2, /*PartialOrdering=*/true,
-          TemplateArgumentList(TemplateArgumentList::OnStack,
-                               TST1->template_arguments()),
-          Deduced, Info))
-    return false;
-
-  return true;
-}
-
 /// \brief Returns the more specialized class template partial specialization
 /// according to the rules of partial ordering of class template partial
 /// specializations (C++ [temp.class.order]).
@@ -5016,8 +5030,19 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better1 = isAtLeastAsSpecializedAs(*this, PT1, PT2, PS2, Info);
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
-  if (Better1 == Better2)
-    return nullptr;
+  if (Better1 == Better2) {
+    bool MoreConstrained1 = IsMoreConstrained(PS1,
+                                              PS1->getAssociatedConstraints(),
+                                              PS2,
+                                              PS2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(PS2,
+                                              PS2->getAssociatedConstraints(),
+                                              PS1,
+                                              PS1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2)
+      return nullptr;
+    return MoreConstrained1 ? PS1 : PS2;
+  }
 
   return Better1 ? PS1 : PS2;
 }
@@ -5027,11 +5052,24 @@ bool Sema::isMoreSpecializedThanPrimary(
   ClassTemplateDecl *Primary = Spec->getSpecializedTemplate();
   QualType PrimaryT = Primary->getInjectedClassNameSpecialization();
   QualType PartialT = Spec->getInjectedSpecializationType();
+  auto JudgeByConstraints = [&] {
+    bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
+                                            Primary->getAssociatedConstraints(),
+                                            Spec,
+                                            Spec->getAssociatedConstraints());
+    bool MoreConstrainedSpec = IsMoreConstrained(Spec,
+                                           Spec->getAssociatedConstraints(),
+                                           Primary,
+                                           Primary->getAssociatedConstraints());
+    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+      return false;
+    return MoreConstrainedSpec;
+  };
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
-    return false;
-  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)) {
+    return JudgeByConstraints();
+  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)){
     Info.clearSFINAEDiagnostic();
-    return false;
+    return JudgeByConstraints();
   }
   return true;
 }
@@ -5056,8 +5094,20 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better1 = isAtLeastAsSpecializedAs(*this, PT1, PT2, PS2, Info);
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
-  if (Better1 == Better2)
-    return nullptr;
+  if (Better1 == Better2) {
+    bool MoreConstrained1 = IsMoreConstrained(PS1,
+                                              PS1->getAssociatedConstraints(),
+                                              PS2,
+                                              PS2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(PS2,
+                                              PS2->getAssociatedConstraints(),
+                                              PS1,
+                                              PS1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2) {
+      return nullptr;
+    }
+    return MoreConstrained1 ? PS1 : PS2;
+  }
 
   return Better1 ? PS1 : PS2;
 }
@@ -5077,11 +5127,26 @@ bool Sema::isMoreSpecializedThanPrimary(
       CanonTemplate, PrimaryArgs);
   QualType PartialT = Context.getTemplateSpecializationType(
       CanonTemplate, Spec->getTemplateArgs().asArray());
+
+  auto JudgeByConstraints = [&] {
+      bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
+                                            Primary->getAssociatedConstraints(),
+                                            Spec,
+                                            Spec->getAssociatedConstraints());
+      bool MoreConstrainedSpec = IsMoreConstrained(Spec,
+                                           Spec->getAssociatedConstraints(),
+                                           Primary,
+                                           Primary->getAssociatedConstraints());
+      if (MoreConstrainedPrimary == MoreConstrainedSpec)
+        return false;
+      return MoreConstrainedSpec;
+  };
+
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
-    return false;
-  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)) {
+    return JudgeByConstraints();
+  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)){
     Info.clearSFINAEDiagnostic();
-    return false;
+    return JudgeByConstraints();
   }
   return true;
 }

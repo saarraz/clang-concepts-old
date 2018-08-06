@@ -62,6 +62,16 @@ bool Sema::CheckRedeclarationConstraintMatch(const Expr *OldAC,
   return false;
 }
 
+void
+Sema::DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
+                                              const TemplateParameterList *New){
+  Diag(New->getTemplateLoc(),
+       diag::err_template_different_associated_constraints);
+
+  Diag(Old->getTemplateLoc(), diag::note_template_prev_declaration)
+        << /*declaration*/0;
+}
+
 template<typename TemplateDeclT>
 static bool
 calculateConstraintSatisfaction(Sema& S, TemplateDeclT *Template,
@@ -345,4 +355,382 @@ void Sema::DiagnoseUnsatisfiedConstraint(
     diagnoseUnsatisfiedConstraintExpr(*this, Pair.first, Pair.second, First);
     First = false;
   }
+}
+namespace {
+struct AtomicConstraint {
+  AtomicConstraint(Expr *ConstraintExpr,
+      const ASTTemplateArgumentListInfo *ParameterMapping = nullptr) :
+      ConstraintExpr{ConstraintExpr}, ParameterMapping{ParameterMapping} {}
+
+  bool subsumes(ASTContext &C, const AtomicConstraint &Other) const {
+    // C++ [temp.constr.order] p2
+    //   - an atomic constraint A subsumes another atomic constraint B
+    //     if and only if the A and B are identical [...]
+    //
+    // C++ [temp.constr.atomic] p2
+    //   Two atomic constraints are identical if they are formed from the
+    //   same expression and the targets of the parameter mappings are
+    //   equivalent according to the rules for expressions [...]
+
+    // We do not actually substitute the parameter mappings, therefore the
+    // constraint expressions are the originals, and comparing them will
+    // suffice.
+    if (ConstraintExpr != Other.ConstraintExpr)
+      return false;
+
+    // Check that the parameter lists are identical
+    if ((!ParameterMapping) != (!Other.ParameterMapping))
+      return false;
+    if (!ParameterMapping)
+      return true;
+    if (ParameterMapping->NumTemplateArgs !=
+        Other.ParameterMapping->NumTemplateArgs)
+      return false;
+
+    for (unsigned I = 0, S = ParameterMapping->NumTemplateArgs; I < S; ++I)
+      if (!C.getCanonicalTemplateArgument(
+                ParameterMapping->arguments()[I].getArgument())
+               .structurallyEquals(C.getCanonicalTemplateArgument(
+                   Other.ParameterMapping->arguments()[I].getArgument())))
+        return false;
+
+
+    return true;
+  }
+
+  Expr *ConstraintExpr;
+  const ASTTemplateArgumentListInfo *ParameterMapping;
+};
+
+class NormalizedConstraint {
+public:
+  enum CompoundConstraintKind { CCK_Conjunction, CCK_Disjunction };
+
+private:
+  using CompoundConstraint = llvm::PointerIntPair<
+      std::pair<NormalizedConstraint, NormalizedConstraint> *, 1,
+      CompoundConstraintKind>;
+
+  llvm::PointerUnion<AtomicConstraint *, CompoundConstraint> Constraint;
+
+  NormalizedConstraint(AtomicConstraint *C) : Constraint{C} {};
+  NormalizedConstraint(ASTContext &C, NormalizedConstraint LHS,
+                       NormalizedConstraint RHS, CompoundConstraintKind Kind)
+      : Constraint{CompoundConstraint{
+            new std::pair<NormalizedConstraint, NormalizedConstraint>{LHS, RHS},
+            Kind}} {};
+
+public:
+  CompoundConstraintKind getCompoundKind() const {
+    assert(!isAtomic() && "getCompoundKind called on atomic constraint.");
+    return Constraint.get<CompoundConstraint>().getInt();
+  }
+
+  bool isAtomic() const { return Constraint.is<AtomicConstraint *>(); }
+
+  NormalizedConstraint &getLHS() const {
+    assert(!isAtomic() && "getLHS called on atomic constraint.");
+    return Constraint.get<CompoundConstraint>().getPointer()->first;
+  }
+
+  NormalizedConstraint &getRHS() const {
+    assert(!isAtomic() && "getRHS called on atomic constraint.");
+    return Constraint.get<CompoundConstraint>().getPointer()->second;
+  }
+
+  AtomicConstraint *getAtomicConstraint() const {
+    assert(isAtomic() &&
+           "getAtomicConstraint called on non-atomic constraint.");
+    return Constraint.get<AtomicConstraint *>();
+  }
+  static llvm::Optional<NormalizedConstraint> fromConstraintExpr(
+      Sema &S, Expr *E, TemplateDecl *TD = nullptr,
+      const ASTTemplateArgumentListInfo *ParameterMapping = nullptr) {
+    assert(E != nullptr);
+
+    // C++ [temp.constr.normal]p1.1
+    // - The normal form of an expression (E) is the normal form of E.
+    if (ParenExpr *P = dyn_cast<ParenExpr>(E))
+      return fromConstraintExpr(S, P->getSubExpr(), TD, ParameterMapping);
+    if (BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr) {
+        auto LHS = fromConstraintExpr(S, BO->getLHS(), TD, ParameterMapping);
+        if (!LHS)
+          return llvm::Optional<NormalizedConstraint>{};
+        auto RHS = fromConstraintExpr(S, BO->getRHS(), TD, ParameterMapping);
+        if (!RHS)
+          return llvm::Optional<NormalizedConstraint>{};
+
+        return NormalizedConstraint(
+            S.Context, *LHS, *RHS,
+            BO->getOpcode() == BO_LAnd ? CCK_Conjunction : CCK_Disjunction);
+      }
+    } else if (auto *CSE = dyn_cast<ConceptSpecializationExpr>(E)) {
+      const ASTTemplateArgumentListInfo *Mapping =
+          CSE->getTemplateArgumentListInfo();
+      if (!ParameterMapping) {
+        llvm::SmallVector<TemplateArgument, 4> TempList;
+        bool InstantiationDependent = false;
+        TemplateArgumentListInfo TALI(Mapping->LAngleLoc, Mapping->RAngleLoc);
+        for (auto &Arg : Mapping->arguments())
+          TALI.addArgument(Arg);
+        bool Failed = S.CheckTemplateArgumentList(CSE->getNamedConcept(),
+            E->getLocStart(), TALI, /*PartialTemplateArgs=*/false, TempList,
+            /*UpdateArgsWithConversions=*/false, &InstantiationDependent);
+        // The potential failure case here is this:
+        //
+        // template<typename U>
+        // concept C = true;
+        //
+        // template<typename T>
+        // void foo() requires C<T, T> // The immediate constraint expr
+        //                             // contains a CSE with incorrect no.
+        //                             // of arguments.
+        // {}
+        // This will be handled when C<T, T> is parsed.
+        assert(
+            !Failed &&
+            "Unmatched arguments in top level concept specialization "
+            "expression should've been caught while it was being constructed");
+
+        if (InstantiationDependent)
+          // The case is this:
+          //
+          // template<typename U, typename T>
+          // concept C = true;
+          //
+          // template<typename... Ts>
+          // void foo() requires C<Ts...> // The immediate constraint expr
+          //                              // contains a CSE whose parameters
+          //                              // are not mappable to arguments
+          //                              // without concrete values.
+          // {}
+          //
+          // Just treat C<Ts...> as an atomic constraint.
+          return NormalizedConstraint{new (S.Context)
+                                          AtomicConstraint(E, Mapping)};
+
+        return fromConstraintExpr(S,
+                                  CSE->getNamedConcept()->getConstraintExpr(),
+                                  CSE->getNamedConcept(), Mapping);
+      }
+
+      assert(TD && "ParameterMapping provided without TemplateDecl");
+
+      TemplateArgumentListInfo TALI(ParameterMapping->LAngleLoc,
+                                    ParameterMapping->RAngleLoc);
+      for (auto &Arg : ParameterMapping->arguments())
+        TALI.addArgument(Arg);
+      llvm::SmallVector<TemplateArgument, 4> TempList;
+      bool InstantiationDependent = false;
+      bool Success =
+          !S.CheckTemplateArgumentList(TD, ParameterMapping->LAngleLoc,
+                                       TALI, /*PartialTemplateArgs=*/false,
+                                       TempList,
+                                       /*UpdateArgsWithConversions=*/true,
+                                       &InstantiationDependent) &&
+          !InstantiationDependent;
+      assert(Success && "ParameterMapping should have already been cheked "
+                        "against template argument list earlier.");
+
+      auto DiagnoseSubstitutionError = [&](unsigned int Diag) {
+        std::string TemplateArgString = S.getTemplateArgumentBindingsText(
+            TD->getTemplateParameters(), TempList.data(), TempList.size());
+        S.Diag(CSE->getLocStart(), Diag) << CSE << TemplateArgString;
+      };
+
+      MultiLevelTemplateArgumentList MLTAL;
+      MLTAL.addOuterTemplateArguments(TempList);
+
+      ExprResult Result = S.SubstExpr(CSE, MLTAL);
+      if (!Result.isUsable() || Result.isInvalid()) {
+        // C++ [temp.constr.normal]
+        // If any such substitution results in an invalid type or
+        // expression, the program is ill-formed; no diagnostic is required.
+
+        // A diagnostic was already emitted from the substitution , but
+        // we'll let the user know why it's not SFINAEd from them.
+        DiagnoseSubstitutionError(
+            diag::note_could_not_normalize_argument_substitution_failed);
+        return llvm::Optional<NormalizedConstraint>{};
+      }
+      Mapping = cast<ConceptSpecializationExpr>(Result.get())
+                    ->getTemplateArgumentListInfo();
+
+      TemplateArgumentListInfo SubstTALI(ParameterMapping->LAngleLoc,
+                                         ParameterMapping->RAngleLoc);
+      for (auto &Arg : ParameterMapping->arguments())
+        SubstTALI.addArgument(Arg);
+      llvm::SmallVector<TemplateArgument, 4> Converted;
+      if (S.CheckTemplateArgumentList(
+              CSE->getNamedConcept(), CSE->getLocStart(), SubstTALI,
+              /*PartialTemplateArgs=*/false, Converted,
+              /*UpdateArgsWithConversions=*/true, &InstantiationDependent)) {
+        // The case is this:
+        //
+        // template<typename T, typename U>
+        // concept C1 = true;
+        //
+        // template<typename... Ts>
+        // concept C2 = C1<Ts...>; // After substituting Ts = {T}, the
+        //                         // resulting argument list does not match
+        //                         // the parameter list.
+        //
+        // template<typename T>
+        // void foo() requires C2<T> {}
+        DiagnoseSubstitutionError(
+            diag::note_could_not_normalize_unmatched_argument_list_after_subst);
+        return llvm::Optional<NormalizedConstraint>{};
+      }
+      if (InstantiationDependent)
+        // The case is this:
+        //
+        // template<typename T, typename U>
+        // concept C1 = true;
+        //
+        // template<typename... Us>
+        // concept C2 = C1<Us...>; // After substituting Us = {Ts}, we cannot
+        //                         // match arguments to parameters.
+        //
+        // template<typename... Ts>
+        // void foo() requires C2<T...> {}
+        //
+        // Treat the CSE as an atomic expression.
+        return NormalizedConstraint{new (S.Context)
+                                        AtomicConstraint(E, ParameterMapping)};
+
+      return fromConstraintExpr(S, CSE->getNamedConcept()->getConstraintExpr(),
+                                CSE->getNamedConcept(), Mapping);
+    }
+    return NormalizedConstraint{new (S.Context)
+                                    AtomicConstraint(E, ParameterMapping)};
+  }
+};
+} // namespace
+
+using NormalForm =
+    llvm::SmallVector<llvm::SmallVector<AtomicConstraint *, 2>, 4>;
+
+static NormalForm makeCNF(const NormalizedConstraint &Normalized) {
+  if (Normalized.isAtomic())
+    return {{Normalized.getAtomicConstraint()}};
+
+  NormalForm LCNF = makeCNF(Normalized.getLHS());
+  NormalForm RCNF = makeCNF(Normalized.getRHS());
+  if (Normalized.getCompoundKind() == NormalizedConstraint::CCK_Conjunction) {
+    LCNF.reserve(LCNF.size() + RCNF.size());
+    while (!RCNF.empty())
+      LCNF.push_back(std::move(RCNF.pop_back_val()));
+    return LCNF;
+  }
+
+  // Disjunction
+  NormalForm Res;
+  Res.reserve(LCNF.size() * RCNF.size());
+  for (auto &LDisjunction : LCNF)
+    for (auto &RDisjunction : RCNF) {
+      NormalForm::value_type Combined;
+      Combined.reserve(LDisjunction.size() + RDisjunction.size());
+      std::copy(LDisjunction.begin(), LDisjunction.end(),
+                std::back_inserter(Combined));
+      std::copy(RDisjunction.begin(), RDisjunction.end(),
+                std::back_inserter(Combined));
+      Res.emplace_back(Combined);
+    }
+  return Res;
+}
+
+static NormalForm makeDNF(const NormalizedConstraint &Normalized) {
+  if (Normalized.isAtomic())
+    return {{Normalized.getAtomicConstraint()}};
+
+  NormalForm LDNF = makeDNF(Normalized.getLHS());
+  NormalForm RDNF = makeDNF(Normalized.getRHS());
+  if (Normalized.getCompoundKind() == NormalizedConstraint::CCK_Disjunction) {
+    LDNF.reserve(LDNF.size() + RDNF.size());
+    while (!RDNF.empty())
+      LDNF.push_back(std::move(RDNF.pop_back_val()));
+    return LDNF;
+  }
+
+  // Conjunction
+  NormalForm Res;
+  Res.reserve(LDNF.size() * RDNF.size());
+  for (auto &LConjunction : LDNF) {
+    for (auto &RConjunction : RDNF) {
+      NormalForm::value_type Combined;
+      Combined.reserve(LConjunction.size() + RConjunction.size());
+      std::copy(LConjunction.begin(), LConjunction.end(),
+                std::back_inserter(Combined));
+      std::copy(RConjunction.begin(), RConjunction.end(),
+                std::back_inserter(Combined));
+      Res.emplace_back(Combined);
+    }
+  }
+  return Res;
+}
+
+static bool subsumes(Sema &S, Expr *P, Expr *Q) {
+  // C++ [temp.constr.order] p2
+  //   In order to determine if a constraint P subsumes a constraint Q, P is
+  //   transformed into disjunctive normal form, and Q is transformed into
+  //   conjunctive normal form. [...]
+  auto PNormalized = NormalizedConstraint::fromConstraintExpr(S, P);
+  if (!PNormalized)
+    // Program is ill formed at this point.
+    return false;
+  const NormalForm PDNF = makeDNF(*PNormalized);
+
+  auto QNormalized = NormalizedConstraint::fromConstraintExpr(S, Q);
+  if (!QNormalized)
+    // Program is ill formed at this point.
+    return false;
+  const NormalForm QCNF = makeCNF(*QNormalized);
+
+  // C++ [temp.constr.order] p2
+  //   Then, P subsumes Q if and only if, for every disjunctive clause Pi in the
+  //   disjunctive normal form of P, Pi subsumes every conjunctive clause Qj in
+  //   the conjuctive normal form of Q, where [...]
+  for (const auto &Pi : PDNF) {
+    for (const auto &Qj : QCNF) {
+      // C++ [temp.constr.order] p2
+      //   - [...] a disjunctive clause Pi subsumes a conjunctive clause Qj if
+      //     and only if there exists an atomic constraint Pia in Pi for which
+      //     there exists an atomic constraint, Qjb, in Qj such that Pia
+      //     subsumes Qjb.
+      bool Found = false;
+      for (const AtomicConstraint *Pia : Pi) {
+        for (const AtomicConstraint *Qjb : Qj) {
+          if (Pia->subsumes(S.Context, *Qjb)) {
+            Found = true;
+            break;
+          }
+        }
+        if (Found)
+          break;
+      }
+      if (!Found) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool Sema::IsMoreConstrained(NamedDecl *D1, Expr *AC1, NamedDecl *D2,
+                             Expr *AC2) {
+  if (!AC1)
+    return AC2 == nullptr;
+  if (!AC2)
+    // TD1 has associated constraints and TD2 does not.
+    return true;
+
+  std::pair<NamedDecl *, NamedDecl *> Key{D1, D2};
+  auto CacheEntry = SubsumptionCache.find(Key);
+  if (CacheEntry != SubsumptionCache.end()) {
+    return CacheEntry->second;
+  }
+  bool Subsumes = subsumes(*this, AC1, AC2);
+  SubsumptionCache.try_emplace(Key, Subsumes);
+  return Subsumes;
 }
