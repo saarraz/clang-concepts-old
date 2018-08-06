@@ -42,3 +42,17 @@ bool Sema::CheckConstraintExpression(Expr *ConstraintExpression) {
   }
   return true;
 }
+
+bool Sema::CheckRedeclarationConstraintMatch(const Expr *OldAC,
+                                             const Expr *NewAC) {
+  if (!(NewAC || OldAC))
+    return true; // Nothing to check; no mismatch.
+  if (NewAC && OldAC) {
+    llvm::FoldingSetNodeID OldACInfo, NewACInfo;
+    NewAC->Profile(NewACInfo, Context, /*Canonical=*/true);
+    OldAC->Profile(OldACInfo, Context, /*Canonical=*/true);
+    if (NewACInfo == OldACInfo)
+      return true; // All good; no mismatch.
+  }
+  return false;
+}

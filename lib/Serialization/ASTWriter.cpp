@@ -5850,10 +5850,16 @@ void ASTRecordWriter::AddTemplateParameterList(
   AddSourceLocation(TemplateParams->getTemplateLoc());
   AddSourceLocation(TemplateParams->getLAngleLoc());
   AddSourceLocation(TemplateParams->getRAngleLoc());
-  // TODO: Concepts
+
   Record->push_back(TemplateParams->size());
   for (const auto &P : *TemplateParams)
-    AddDeclRef(P);
+    AddDeclRef(P); // TODO: Concepts - constrained parameters.
+  if (const Expr *RequiresClause = TemplateParams->getRequiresClause()) {
+    Record->push_back(true);
+    AddStmt(const_cast<Expr*>(RequiresClause));
+  } else {
+    Record->push_back(false);
+  }
 }
 
 /// \brief Emit a template argument list.

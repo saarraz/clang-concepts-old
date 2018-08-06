@@ -8664,10 +8664,13 @@ ASTReader::ReadTemplateParameterList(ModuleFile &F,
   Params.reserve(NumParams);
   while (NumParams--)
     Params.push_back(ReadDeclAs<NamedDecl>(F, Record, Idx));
+    // TODO: Concepts: Constrained parameters
 
-  // TODO: Concepts
+  bool HasRequiresClause = Record[Idx++];
+  Expr *RequiresClause = HasRequiresClause ? ReadExpr(F) : nullptr;
+
   TemplateParameterList *TemplateParams = TemplateParameterList::Create(
-      getContext(), TemplateLoc, LAngleLoc, Params, RAngleLoc, nullptr);
+      getContext(), TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause);
   return TemplateParams;
 }
 

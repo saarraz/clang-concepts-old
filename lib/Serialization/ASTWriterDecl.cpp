@@ -1402,6 +1402,12 @@ void ASTDeclWriter::VisitRedeclarableTemplateDecl(RedeclarableTemplateDecl *D) {
     Record.AddDeclRef(D->getInstantiatedFromMemberTemplate());
     if (D->getInstantiatedFromMemberTemplate())
       Record.push_back(D->isMemberSpecialization());
+
+    Expr *AssociatedConstraints = D->getAssociatedConstraints();
+    Record.push_back(AssociatedConstraints != nullptr);
+    if (AssociatedConstraints) {
+      Record.AddStmt(AssociatedConstraints);
+    }
   }
   
   VisitTemplateDecl(D);
@@ -1463,6 +1469,11 @@ void ASTDeclWriter::VisitClassTemplatePartialSpecializationDecl(
   if (D->getPreviousDecl() == nullptr) {
     Record.AddDeclRef(D->getInstantiatedFromMember());
     Record.push_back(D->isMemberSpecialization());
+    Expr *AssociatedConstraints = D->getAssociatedConstraints();
+    Record.push_back(AssociatedConstraints != nullptr);
+    if (AssociatedConstraints) {
+      Record.AddStmt(AssociatedConstraints);
+    }
   }
 
   Code = serialization::DECL_CLASS_TEMPLATE_PARTIAL_SPECIALIZATION;
@@ -1523,6 +1534,11 @@ void ASTDeclWriter::VisitVarTemplatePartialSpecializationDecl(
   if (D->getPreviousDecl() == nullptr) {
     Record.AddDeclRef(D->getInstantiatedFromMember());
     Record.push_back(D->isMemberSpecialization());
+    Expr *AssociatedConstraints = D->getAssociatedConstraints();
+    Record.push_back(AssociatedConstraints != nullptr);
+    if (AssociatedConstraints) {
+      Record.AddStmt(AssociatedConstraints);
+    }
   }
 
   Code = serialization::DECL_VAR_TEMPLATE_PARTIAL_SPECIALIZATION;

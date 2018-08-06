@@ -70,6 +70,8 @@ TemplateParameterList::TemplateParameterList(SourceLocation TemplateLoc,
   }
   if (RequiresClause) {
     *getTrailingObjects<Expr *>() = RequiresClause;
+    if (RequiresClause->containsUnexpandedParameterPack())
+      ContainsUnexpandedParameterPack = true;
   }
 }
 
@@ -145,6 +147,65 @@ void *allocateDefaultArgStorageChain(const ASTContext &C) {
 }
 
 } // namespace clang
+
+static ConstrainedTemplateDeclInfo *
+collectAssociatedConstraints(ASTContext& C, TemplateParameterList *Params) {
+  // TODO: Instead of calling getRequiresClause - write and call a
+  // TemplateParameterList member function calculateAssociatedConstraints, which
+  // will also fetch constraint-expressions from constrained-parameters.
+  Expr *AssociatedConstraints = Params->getRequiresClause();
+  // TODO: Collect function requires clause, if any.
+  if (AssociatedConstraints) {
+    ConstrainedTemplateDeclInfo *CTDI = new (C) ConstrainedTemplateDeclInfo;
+    CTDI->setAssociatedConstraints(AssociatedConstraints);
+    CTDI->setTemplateParameters(Params);
+    return CTDI;
+  }
+  return nullptr;
+}
+
+// This function exists outside TemplateDecl because
+// '*TemplatePartialSpecializationDecls' need this code too, and are not derived
+// from the former.
+Expr *
+getOrCollectAssociatedConstraints(ASTContext& C,
+                                  llvm::PointerIntPair<
+                                    llvm::PointerUnion<TemplateParameterList *,
+                                                 ConstrainedTemplateDeclInfo *>,
+                                    1, bool>& TemplateParamsMember) {
+  if (!TemplateParamsMember.getInt()) {
+    TemplateParamsMember.setInt(true);
+    ConstrainedTemplateDeclInfo *CTDI =
+      collectAssociatedConstraints(C, TemplateParamsMember.getPointer()
+                                        .get<TemplateParameterList*>());
+    if (CTDI) {
+      TemplateParamsMember.setPointer(CTDI);
+      return CTDI->getAssociatedConstraints();
+    }
+    return nullptr;
+  }
+  const auto *const CTDI = TemplateParamsMember.getPointer()
+                             .dyn_cast<ConstrainedTemplateDeclInfo *>();
+  return CTDI ? CTDI->getAssociatedConstraints() : nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// TemplateDecl Implementation
+//===----------------------------------------------------------------------===//
+
+TemplateDecl::TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L,
+                           DeclarationName Name, TemplateParameterList *Params,
+                           NamedDecl *Decl)
+    : NamedDecl(DK, DC, L, Name), TemplatedDecl(Decl),
+      TemplateParams(Params, false) {}
+
+
+Expr *TemplateDecl::getAssociatedConstraints() {
+  return getOrCollectAssociatedConstraints(getASTContext(),
+                        cast<TemplateDecl>(getCanonicalDecl())->TemplateParams);
+}
+
+void TemplateDecl::anchor() {}
 
 //===----------------------------------------------------------------------===//
 // RedeclarableTemplateDecl Implementation
@@ -308,19 +369,10 @@ ClassTemplateDecl *ClassTemplateDecl::Create(ASTContext &C,
                                              SourceLocation L,
                                              DeclarationName Name,
                                              TemplateParameterList *Params,
-                                             NamedDecl *Decl,
-                                             Expr *AssociatedConstraints) {
+                                             NamedDecl *Decl) {
   AdoptTemplateParameterList(Params, cast<DeclContext>(Decl));
 
-  if (!AssociatedConstraints) {
-    return new (C, DC) ClassTemplateDecl(C, DC, L, Name, Params, Decl);
-  }
-
-  ConstrainedTemplateDeclInfo *const CTDI = new (C) ConstrainedTemplateDeclInfo;
-  ClassTemplateDecl *const New =
-      new (C, DC) ClassTemplateDecl(CTDI, C, DC, L, Name, Params, Decl);
-  New->setAssociatedConstraints(AssociatedConstraints);
-  return New;
+  return new (C, DC) ClassTemplateDecl(C, DC, L, Name, Params, Decl);
 }
 
 ClassTemplateDecl *ClassTemplateDecl::CreateDeserialized(ASTContext &C,
@@ -681,12 +733,6 @@ FunctionTemplateSpecializationInfo::Create(ASTContext &C, FunctionDecl *FD,
 }
 
 //===----------------------------------------------------------------------===//
-// TemplateDecl Implementation
-//===----------------------------------------------------------------------===//
-
-void TemplateDecl::anchor() {}
-
-//===----------------------------------------------------------------------===//
 // ClassTemplateSpecializationDecl Implementation
 //===----------------------------------------------------------------------===//
 
@@ -838,8 +884,8 @@ ClassTemplatePartialSpecializationDecl(ASTContext &Context, TagKind TK,
                                       ClassTemplatePartialSpecialization,
                                       TK, DC, StartLoc, IdLoc,
                                       SpecializedTemplate, Args, PrevDecl),
-      TemplateParams(Params), ArgsAsWritten(ArgInfos),
-      InstantiatedFromMember(nullptr, false) {
+      TemplateParams(Params, false),
+      ArgsAsWritten(ArgInfos), InstantiatedFromMember(nullptr, false) {
   AdoptTemplateParameterList(Params, this);
 }
 
@@ -874,6 +920,12 @@ ClassTemplatePartialSpecializationDecl::CreateDeserialized(ASTContext &C,
       new (C, ID) ClassTemplatePartialSpecializationDecl(C);
   Result->MayHaveOutOfDateDef = false;
   return Result;
+}
+
+Expr* ClassTemplatePartialSpecializationDecl::getAssociatedConstraints() {
+  return getOrCollectAssociatedConstraints(getASTContext(),
+           cast<ClassTemplatePartialSpecializationDecl>(getCanonicalDecl())
+             ->TemplateParams);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1131,7 +1183,7 @@ VarTemplatePartialSpecializationDecl::VarTemplatePartialSpecializationDecl(
     : VarTemplateSpecializationDecl(VarTemplatePartialSpecialization, Context,
                                     DC, StartLoc, IdLoc, SpecializedTemplate, T,
                                     TInfo, S, Args),
-      TemplateParams(Params), ArgsAsWritten(ArgInfos),
+      TemplateParams(Params, false), ArgsAsWritten(ArgInfos),
       InstantiatedFromMember(nullptr, false) {
   // TODO: The template parameters should be in DC by now. Verify.
   // AdoptTemplateParameterList(Params, DC);
@@ -1159,6 +1211,12 @@ VarTemplatePartialSpecializationDecl *
 VarTemplatePartialSpecializationDecl::CreateDeserialized(ASTContext &C,
                                                          unsigned ID) {
   return new (C, ID) VarTemplatePartialSpecializationDecl(C);
+}
+
+Expr* VarTemplatePartialSpecializationDecl::getAssociatedConstraints() {
+  return getOrCollectAssociatedConstraints(getASTContext(),
+           cast<VarTemplatePartialSpecializationDecl>(getCanonicalDecl())
+             ->TemplateParams);
 }
 
 static TemplateParameterList *

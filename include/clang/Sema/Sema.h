@@ -5581,7 +5581,12 @@ public:
   /// A diagnostic is emitted if it is not, and false is returned.
   bool CheckConstraintExpression(Expr *CE);
 
-    // ParseObjCStringLiteral - Parse Objective-C string literals.
+  /// \brief Check that the associated constraints of a template declaration
+  /// match the associated constraints of an older declaration of which it is a
+  /// redeclaration
+  bool CheckRedeclarationConstraintMatch(const Expr *OldAC, const Expr *NewAC);
+
+  // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,
                                     ArrayRef<Expr *> Strings);
 

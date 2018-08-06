@@ -1965,7 +1965,6 @@ DeclID ASTDeclReader::VisitTemplateDecl(TemplateDecl *D) {
   DeclID PatternID = ReadDeclID();
   NamedDecl *TemplatedDecl = cast_or_null<NamedDecl>(Reader.GetDecl(PatternID));
   TemplateParameterList *TemplateParams = Record.readTemplateParameterList();
-  // FIXME handle associated constraints
   D->init(TemplatedDecl, TemplateParams);
 
   return PatternID;
@@ -1991,6 +1990,7 @@ ASTDeclReader::VisitRedeclarableTemplateDecl(RedeclarableTemplateDecl *D) {
 
   // If this is the first declaration of the template, fill in the information
   // for the 'common' pointer.
+  Expr *AssociatedConstraints = nullptr;
   if (ThisDeclID == Redecl.getFirstID()) {
     if (RedeclarableTemplateDecl *RTD
           = ReadDeclAs<RedeclarableTemplateDecl>()) {
@@ -2000,10 +2000,22 @@ ASTDeclReader::VisitRedeclarableTemplateDecl(RedeclarableTemplateDecl *D) {
       if (Record.readInt())
         D->setMemberSpecialization();
     }
+    bool HasAssociatedConstraints = Record.readInt();
+    if (HasAssociatedConstraints) {
+       AssociatedConstraints = Record.readExpr();
+    }
   }
 
   DeclID PatternID = VisitTemplateDecl(D);
   D->IdentifierNamespace = Record.readInt();
+
+  D->TemplateParams.setInt(true);
+  if (AssociatedConstraints) {
+    auto *CTDI = new (Reader.getContext()) ConstrainedTemplateDeclInfo;
+    CTDI->setTemplateParameters(D->getTemplateParameters());
+    CTDI->setAssociatedConstraints(AssociatedConstraints);
+    D->TemplateParams.setPointer(CTDI);
+  }
 
   mergeRedeclarable(D, Redecl, PatternID);
 
@@ -2132,7 +2144,8 @@ void ASTDeclReader::VisitClassTemplatePartialSpecializationDecl(
                                     ClassTemplatePartialSpecializationDecl *D) {
   RedeclarableResult Redecl = VisitClassTemplateSpecializationDeclImpl(D);
 
-  D->TemplateParams = Record.readTemplateParameterList();
+  TemplateParameterList *Params = Record.readTemplateParameterList();
+  D->TemplateParams.setPointer(Params);
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
 
   // These are read/set from/to the first declaration.
@@ -2140,6 +2153,15 @@ void ASTDeclReader::VisitClassTemplatePartialSpecializationDecl(
     D->InstantiatedFromMember.setPointer(
       ReadDeclAs<ClassTemplatePartialSpecializationDecl>());
     D->InstantiatedFromMember.setInt(Record.readInt());
+    bool HasAssociatedConstraints = Record.readInt();
+    D->TemplateParams.setInt(true);
+    if (HasAssociatedConstraints) {
+      Expr *AssociatedConstraints = Record.readExpr();
+      auto *CTDI = new (Reader.getContext()) ConstrainedTemplateDeclInfo;
+      CTDI->setTemplateParameters(Params);
+      CTDI->setAssociatedConstraints(AssociatedConstraints);
+      D->TemplateParams.setPointer(CTDI);
+    }
   }
 }
 
@@ -2233,7 +2255,8 @@ void ASTDeclReader::VisitVarTemplatePartialSpecializationDecl(
     VarTemplatePartialSpecializationDecl *D) {
   RedeclarableResult Redecl = VisitVarTemplateSpecializationDeclImpl(D);
 
-  D->TemplateParams = Record.readTemplateParameterList();
+  TemplateParameterList *Params = Record.readTemplateParameterList();
+  D->TemplateParams.setPointer(Params);
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
 
   // These are read/set from/to the first declaration.
@@ -2241,6 +2264,16 @@ void ASTDeclReader::VisitVarTemplatePartialSpecializationDecl(
     D->InstantiatedFromMember.setPointer(
         ReadDeclAs<VarTemplatePartialSpecializationDecl>());
     D->InstantiatedFromMember.setInt(Record.readInt());
+
+    bool HasAssociatedConstraints = Record.readInt();
+    D->TemplateParams.setInt(true);
+    if (HasAssociatedConstraints) {
+      Expr *AssociatedConstraints = Record.readExpr();
+      auto *CTDI = new (Reader.getContext()) ConstrainedTemplateDeclInfo;
+      CTDI->setTemplateParameters(Params);
+      CTDI->setAssociatedConstraints(AssociatedConstraints);
+      D->TemplateParams.setPointer(CTDI);
+    }
   }
 }
 
