@@ -2536,6 +2536,22 @@ struct IsPartialSpecialization<VarTemplatePartialSpecializationDecl> {
   static constexpr bool value = true;
 };
 
+template<typename TemplateDeclT>
+static Sema::TemplateDeductionResult
+CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
+                                ArrayRef<TemplateArgument> DeducedArgs,
+                                TemplateDeductionInfo& Info) {
+  if (S.CheckConstraintSatisfaction(Template,
+                                    Template->getAssociatedConstraints(),
+                                    DeducedArgs, Info.getLocation(),
+                                    Info.AssociatedConstraintsSatisfaction)
+      || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
+    Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
+    return Sema::TDK_ConstraintsNotSatisfied;
+  }
+  return Sema::TDK_Success;
+}
+
 /// Complete template argument deduction for a partial specialization.
 template <typename T>
 static typename std::enable_if<IsPartialSpecialization<T>::value,
@@ -2613,6 +2629,9 @@ FinishTemplateArgumentDeduction(
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
+  if (auto Result = CheckDeducedArgumentConstraints(S, Partial, Builder, Info))
+    return Result;
+
   return Sema::TDK_Success;
 }
 
@@ -2655,22 +2674,10 @@ static Sema::TemplateDeductionResult FinishTemplateArgumentDeduction(
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
-  return Sema::TDK_Success;
-}
+  if (auto Result = CheckDeducedArgumentConstraints(S, Template, Builder,
+                                                    Info))
+    return Result;
 
-template<typename TemplateDeclT>
-static Sema::TemplateDeductionResult
-CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
-                                ArrayRef<TemplateArgument> DeducedArgs,
-                                TemplateDeductionInfo& Info) {
-  if (S.CheckConstraintSatisfaction(Template,
-                                    Template->getAssociatedConstraints(),
-                                    DeducedArgs, Info.getLocation(),
-                                    Info.AssociatedConstraintsSatisfaction)
-      || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
-    Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
-    return Sema::TDK_ConstraintsNotSatisfied;
-  }
   return Sema::TDK_Success;
 }
 
@@ -2713,10 +2720,6 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
-    return Result;
-
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
 }
@@ -2757,10 +2760,6 @@ Sema::DeduceTemplateArguments(VarTemplatePartialSpecializationDecl *Partial,
 
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
-
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
-    return Result;
 
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
@@ -2870,12 +2869,6 @@ Sema::SubstituteExplicitTemplateArguments(
   TemplateArgumentList *ExplicitArgumentList
     = TemplateArgumentList::CreateCopy(Context, Builder);
   Info.reset(ExplicitArgumentList);
-
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, FunctionTemplate,
-                                          ExplicitArgumentList->asArray(),
-                                          Info))
-    return Result;
 
   // Template argument deduction and the final substitution should be
   // done in the context of the templated declaration.  Explicit
