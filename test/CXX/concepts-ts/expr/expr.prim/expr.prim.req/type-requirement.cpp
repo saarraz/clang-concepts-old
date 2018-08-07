@@ -8,7 +8,7 @@ template<typename T> struct identity { using type = T; };
 
 struct C {};
 
-struct D { static int type; };
+struct D { static int type; }; // expected-note{{referenced member 'type' is declared here}}
 
 // Basic unqualified and global-qualified lookups
 
@@ -37,7 +37,7 @@ static_assert(requires { typename identity<int>::type; typename ::identity<int>:
 static_assert(!requires { typename identity<int>::typr; }); // expected-error{{'identity<int>::typr' does not name a type}}
 static_assert(!requires { typename ::identity<int>::typr; }); // expected-error{{'::identity<int>::typr' does not name a type}}
 
-template<typename T> requires requires { typename T::type; } // expected-note{{because 'T::type' would be invalid: type 'int' cannot be used prior to '::' because it has no members}} expected-note{{because 'T::type' would be invalid: no type named 'type' in 'C'}} expected-note{{because 'T::type' would be invalid: typename specifier refers to non-type member 'type' in 'D'}}
+template<typename T> requires requires { typename T::type; } // expected-note{{because 'T::type' would be invalid: type 'int' cannot be used prior to '::' because it has no members}} expected-note{{because 'T::type' would be invalid: no type named 'type' in 'C'}} expected-note{{because 'T::type' would be invalid: typename specifier refers to non-type member 'type' in 'D'}} expected-note{{in instantiation of template class 'invalid<D>' requested here}} expected-note{{in instantiation of requirement here}} expected-note{{because 'T::type' would be invalid}}
 struct r1 {};
 
 using r1i1 = r1<identity<int>>;
@@ -45,8 +45,8 @@ using r1i2 = r1<int>; // expected-error{{constraints not satisfied for class tem
 using r1i3 = r1<C>; // expected-error{{constraints not satisfied for class template 'r1' [with T = C]}}
 using r1i4 = r1<D>; // expected-error{{constraints not satisfied for class template 'r1' [with T = D]}}
 
-template<typename T> struct invalid { typename T::type x; };
-using r1i5 = r1<invalid<D>>;
+template<typename T> struct invalid { typename T::type x; }; // expected-error{{typename specifier refers to non-type member 'type' in 'D'}}
+using r1i5 = r1<invalid<D>>; // expected-error{{constraints not satisfied for class template 'r1' [with T = invalid<D>]}} expected-note{{during template argument deduction for class template 'r1' [with T = invalid<D>]}}
 
 // mismatching template arguments
 
