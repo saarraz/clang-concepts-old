@@ -1556,14 +1556,21 @@ TemplateInstantiator::TransformSubstTemplateTypeParmPackType(
 template<typename EntityPrinter>
 static Requirement::SubstitutionDiagnostic *
 createSubstDiag(Sema &S, TemplateDeductionInfo &Info, EntityPrinter Printer) {
-  const PartialDiagnosticAt &PDA = Info.peekSFINAEDiagnostic();
   SmallString<128> Message;
-  PDA.second.EmitToString(S.getDiagnostics(), Message);
+  SourceLocation ErrorLoc;
+  if (Info.hasSFINAEDiagnostic()) {
+    PartialDiagnosticAt PDA(SourceLocation(),
+                            PartialDiagnostic::NullDiagnostic{});
+    Info.takeSFINAEDiagnostic(PDA);
+    PDA.second.EmitToString(S.getDiagnostics(), Message);
+    ErrorLoc = PDA.first;
+  } else {
+    ErrorLoc = Info.getLocation();
+  }
   std::string Str;
   llvm::raw_string_ostream OS(Str);
   Printer(OS);
-  return new (S.Context) Requirement::SubstitutionDiagnostic{OS.str(),
-                                                             PDA.first,
+  return new (S.Context) Requirement::SubstitutionDiagnostic{OS.str(), ErrorLoc,
                                                              Message.str()};
 }
 
@@ -1583,6 +1590,8 @@ TemplateInstantiator::TransformTypeRequirement(TypeRequirement *Req) {
   Sema::InstantiatingTemplate TypeInst(SemaRef,
       Req->getType()->getTypeLoc().getBeginLoc(), Req, Info,
       Req->getType()->getTypeLoc().getSourceRange());
+  if (TypeInst.isInvalid())
+    return nullptr;
   TypeSourceInfo *TransType = TransformType(Req->getType());
   if (!TransType)
     return RebuildTypeRequirement(createSubstDiag(SemaRef, Info,
@@ -1607,6 +1616,8 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
     Sema::InstantiatingTemplate ExprInst(SemaRef, Req->getExpr()->getLocStart(),
                                          Req, Info,
                                          Req->getExpr()->getSourceRange());
+    if (ExprInst.isInvalid())
+      return nullptr;
     ExprResult TransExprRes = TransformExpr(Req->getExpr());
     if (TransExprRes.isInvalid())
       TransExpr = createSubstDiag(SemaRef, Info,
@@ -1627,6 +1638,8 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
   else if (RetReq.isTrailingReturnType()) {
     Sema::InstantiatingTemplate TypeInst(SemaRef, SourceLocation(), Req, Info,
                                          SourceRange());
+    if (TypeInst.isInvalid())
+      return nullptr;
     TypeSourceInfo *TransType = TransformType(
         RetReq.getTrailingReturnTypeExpectedType());
     if (!TransType)
@@ -1642,6 +1655,8 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
         RetReq.getConstrainedParamTemplateParameterList();
     Sema::InstantiatingTemplate TPLInst(SemaRef, OrigTPL->getTemplateLoc(),
                                         Req, Info, OrigTPL->getSourceRange());
+    if (TPLInst.isInvalid())
+      return nullptr;
     TemplateParameterList *TPL =
         TransformTemplateParameterList(OrigTPL);
     if (!TPL)
@@ -1654,6 +1669,8 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
       TPLInst.Clear();
       Sema::InstantiatingTemplate TypeInst(SemaRef, SourceLocation(), Req, Info,
                                            SourceRange());
+      if (TypeInst.isInvalid())
+        return nullptr;
       TypeSourceInfo *TransType = TransformType(
           RetReq.getConstrainedParamExpectedType());
       if (!TransType)
@@ -1693,6 +1710,8 @@ TemplateInstantiator::TransformNestedRequirement(NestedRequirement *Req) {
   Sema::InstantiatingTemplate ConstrInst(SemaRef,
       Req->getConstraintExpr()->getLocStart(), Req, Info,
       Req->getConstraintExpr()->getSourceRange());
+  if (ConstrInst.isInvalid())
+    return nullptr;
   ExprResult TransConstraint = TransformExpr(Req->getConstraintExpr());
   if (TransConstraint.isInvalid())
     return RebuildNestedRequirement(createSubstDiag(SemaRef, Info,

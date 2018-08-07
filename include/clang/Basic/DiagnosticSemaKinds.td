@@ -2445,10 +2445,14 @@ def err_requires_expr_parameter_referenced_in_evaluated_context : Error<
   "constraint variable %0 cannot be used in an evaluated context">;
 def note_expr_requirement_expr_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
+def note_expr_requirement_expr_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
 def note_expr_requirement_noexcept_not_met : Note<
   "%select{and|because}0 '%1' may throw an exception">;
 def note_expr_requirement_type_requirement_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
+def note_expr_requirement_type_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
 def note_expr_requirement_ambiguous_conversion : Note<
   "%select{and|because}0 conversion from expression type %1 to required type %2"
   " is ambiguous">;
@@ -2463,6 +2467,8 @@ def note_expr_requirement_constraints_not_satisfied_simple : Note<
   "%select{and|because}0 expression type %1 does not satisfy %2:">;
 def note_type_requirement_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
+def note_type_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
 def err_type_requirement_non_type_template : Error<
   "'%0' refers to a %select{class template|function template|"
   "variable template|alias template|template template parameter|template}1 "
@@ -2471,6 +2477,8 @@ def err_type_requirement_no_such_type : Error<
   "'%0' does not name a type">;
 def note_nested_requirement_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
+def note_nested_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
 
 
 def err_template_different_associated_constraints : Error<
