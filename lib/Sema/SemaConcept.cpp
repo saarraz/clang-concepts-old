@@ -938,10 +938,15 @@ void ExprRequirement::Diagnose(Sema &S, bool First) const {
     break;
   case SS_ExprSubstitutionFailure: {
     auto *SubstDiag = getExprSubstitutionDiagnostic();
-    S.Diag(SubstDiag->DiagLoc,
-           diag::note_expr_requirement_expr_substitution_error) << (int)First
-        << SubstDiag->SubstitutedEntity
-        << SubstDiag->DiagMessage;
+    if (!SubstDiag->DiagMessage.empty())
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_expr_requirement_expr_substitution_error) << (int)First
+          << SubstDiag->SubstitutedEntity
+          << SubstDiag->DiagMessage;
+    else
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_expr_requirement_expr_unknown_substitution_error)
+            << (int)First << SubstDiag->SubstitutedEntity;
     break;
   }
   case SS_NoexceptNotMet:
@@ -950,9 +955,15 @@ void ExprRequirement::Diagnose(Sema &S, bool First) const {
     break;
   case SS_TypeRequirementSubstitutionFailure: {
     auto *SubstDiag = TypeReq.getSubstitutionDiagnostic();
-    S.Diag(SubstDiag->DiagLoc,
-           diag::note_expr_requirement_type_requirement_substitution_error)
-        << (int)First << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    if (!SubstDiag->DiagMessage.empty())
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_expr_requirement_type_requirement_substitution_error)
+          << (int)First << SubstDiag->SubstitutedEntity
+          << SubstDiag->DiagMessage;
+    else
+      S.Diag(SubstDiag->DiagLoc,
+        diag::note_expr_requirement_type_requirement_unknown_substitution_error)
+          << (int)First << SubstDiag->SubstitutedEntity;
     break;
   }
   case SS_ImplicitConversionAmbiguous:
@@ -1035,9 +1046,14 @@ void TypeRequirement::Diagnose(Sema &S, bool First) const {
     return;
   case SS_SubstitutionFailure: {
     auto *SubstDiag = getSubstitutionDiagnostic();
-    S.Diag(SubstDiag->DiagLoc,
-           diag::note_type_requirement_substitution_error) << (int)First
-        << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    if (!SubstDiag->DiagMessage.empty())
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_type_requirement_substitution_error) << (int)First
+          << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    else
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_type_requirement_unknown_substitution_error)
+          << (int)First << SubstDiag->SubstitutedEntity;
     return;
   }
   default:
@@ -1059,9 +1075,14 @@ NestedRequirement::NestedRequirement(Sema &S, Expr *Constraint) :
 void NestedRequirement::Diagnose(Sema &S, bool First) const {
   if (isSubstitutionFailure()) {
     auto *SubstDiag = getSubstitutionDiagnostic();
-    S.Diag(SubstDiag->DiagLoc,
-           diag::note_nested_requirement_substitution_error) << (int)First
-        << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    if (!SubstDiag->DiagMessage.empty())
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_nested_requirement_substitution_error) << (int)First
+          << SubstDiag->SubstitutedEntity << SubstDiag->DiagMessage;
+    else
+      S.Diag(SubstDiag->DiagLoc,
+             diag::note_nested_requirement_unknown_substitution_error)
+          << (int)First << SubstDiag->SubstitutedEntity;
     return;
   }
   S.DiagnoseUnsatisfiedConstraint(Satisfaction, First);
