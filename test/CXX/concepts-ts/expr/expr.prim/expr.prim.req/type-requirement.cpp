@@ -37,8 +37,6 @@ static_assert(requires { typename identity<int>::type; typename ::identity<int>:
 static_assert(!requires { typename identity<int>::typr; }); // expected-error{{'identity<int>::typr' does not name a type}}
 static_assert(!requires { typename ::identity<int>::typr; }); // expected-error{{'::identity<int>::typr' does not name a type}}
 
-//
-
 template<typename T> requires requires { typename T::type; } // expected-note{{because 'T::type' would be invalid: type 'int' cannot be used prior to '::' because it has no members}} expected-note{{because 'T::type' would be invalid: no type named 'type' in 'C'}} expected-note{{because 'T::type' would be invalid: typename specifier refers to non-type member 'type' in 'D'}}
 struct r1 {};
 
@@ -46,6 +44,9 @@ using r1i1 = r1<identity<int>>;
 using r1i2 = r1<int>; // expected-error{{constraints not satisfied for class template 'r1' [with T = int]}}
 using r1i3 = r1<C>; // expected-error{{constraints not satisfied for class template 'r1' [with T = C]}}
 using r1i4 = r1<D>; // expected-error{{constraints not satisfied for class template 'r1' [with T = D]}}
+
+template<typename T> struct invalid { typename T::type x; };
+using r1i5 = r1<invalid<D>>;
 
 // mismatching template arguments
 
