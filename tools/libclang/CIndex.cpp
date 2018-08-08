@@ -5964,6 +5964,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::PragmaDetectMismatch:
   case Decl::UsingPack:
   case Decl::Concept:
+  case Decl::RequiresExprBody:
     return C;
 
   // Declaration kinds that don't make any sense here, but are
