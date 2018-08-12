@@ -7870,8 +7870,8 @@ Requirement *Sema::ActOnNestedRequirement(Expr *Constraint) {
 RequiresExprBodyDecl *
 Sema::ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
                              ArrayRef<ParmVarDecl *> LocalParameters,
-                             Scope *LocalParametersScope) {
-  assert(LocalParametersScope);
+                             Scope *BodyScope) {
+  assert(BodyScope);
 
   RequiresExprBodyDecl *Body = RequiresExprBodyDecl::Create(Context, CurContext,
                                                             RequiresKWLoc);
@@ -7879,7 +7879,7 @@ Sema::ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
   // Maintain an efficient lookup of params we have seen so far.
   llvm::SmallSet<const IdentifierInfo*, 16> ParamsSoFar;
 
-  PushDeclContext(LocalParametersScope, Body);
+  PushDeclContext(BodyScope, Body);
 
   for (ParmVarDecl *Param : LocalParameters) {
     if (Param->hasDefaultArg())
@@ -7893,9 +7893,9 @@ Sema::ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
     Param->setDeclContext(Body);
     // If this has an identifier, add it to the scope stack.
     if (Param->getIdentifier()) {
-      CheckShadow(LocalParametersScope, Param);
+      CheckShadow(BodyScope, Param);
 
-      PushOnScopeChains(Param, LocalParametersScope);
+      PushOnScopeChains(Param, BodyScope);
 
       // Verify that the argument identifier has not already been mentioned.
       if (!ParamsSoFar.insert(Param->getIdentifier()).second)

@@ -2966,10 +2966,9 @@ ExprResult Parser::ParseRequiresExpression() {
       Actions, Sema::ExpressionEvaluationContext::Unevaluated);
 
   llvm::SmallVector<ParmVarDecl *, 2> LocalParameterDecls;
-  ParseScope LocalParametersScope(this, Scope::FunctionPrototypeScope |
-                                        Scope::DeclScope);
   if (Tok.is(tok::l_paren)) {
     // requirement parameter list is present.
+    ParseScope LocalParametersScope(this, Scope::FunctionPrototypeScope);
     BalancedDelimiterTracker Parens(*this, tok::l_paren);
     Parens.consumeOpen();
     if (!Tok.is(tok::r_paren)) {
@@ -3009,6 +3008,7 @@ ExprResult Parser::ParseRequiresExpression() {
     return ExprError();
   }
 
+  ParseScope BodyScope(this, Scope::DeclScope);
   RequiresExprBodyDecl *Body = Actions.ActOnEnterRequiresExpr(
       RequiresKWLoc, LocalParameterDecls, getCurScope());
 

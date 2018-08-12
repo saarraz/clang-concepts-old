@@ -6605,7 +6605,7 @@ public:
   RequiresExprBodyDecl *
   ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
                          ArrayRef<ParmVarDecl *> LocalParameters,
-                         Scope *LocalParametersScope);
+                         Scope *BodyScope);
   void ActOnExitRequiresExpr();
   Requirement *ActOnSimpleRequirement(Expr *E);
   Requirement *ActOnTypeRequirement(SourceLocation TypenameKWLoc,
