@@ -6106,7 +6106,8 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         TentativeParsingAction TPA(*this);
         DiagnosticErrorTrap Trap(Diags);
         Diags.setSuppressAllDiagnostics(true);
-        TrailingRequiresClause = ParseConstraintExpression();
+        TrailingRequiresClause =
+            Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
         Diags.setSuppressAllDiagnostics(false);
 
         if (!Trap.hasErrorOccurred() && TrailingRequiresClause.isUsable()
