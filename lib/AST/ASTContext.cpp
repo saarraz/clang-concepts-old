@@ -645,8 +645,18 @@ ASTContext::CanonicalTemplateTemplateParm::Profile(llvm::FoldingSetNodeID &ID,
     RequiresClause->Profile(ID, C, /*Canonical=*/true);
   Expr *CE = Parm->getConstraintExpression();
   ID.AddBoolean(CE != nullptr);
-  if (CE)
-    CE->Profile(ID, C, /*Canonical=*/true);
+  if (CE) {
+    // The constraint expression contains the template name itself as the first
+    // argument (or argument pack), so we must skip it to avoid infinite
+    // recursion.
+    auto *CSE = cast<ConceptSpecializationExpr>(CE);
+    ID.AddPointer(CSE->getNamedConcept()->getCanonicalDecl());
+
+    auto *TALI = CSE->getTemplateArgumentListInfo();
+    for (auto &Arg : TALI->arguments())
+      if (&Arg != &*TALI->arguments().begin())
+        Arg.getArgument().Profile(ID, C);
+  }
 }
 
 TemplateTemplateParmDecl *
