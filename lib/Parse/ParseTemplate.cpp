@@ -370,12 +370,10 @@ Parser::ParseConceptDefinition(unsigned Context,
     return nullptr;
   }
 
-  ExprResult ConstraintExprResult = ParseConstraintExpression();
-  if (ConstraintExprResult.isInvalid()) {
-    Diag(Tok.getLocation(), diag::err_expected_expression)
-      << "constraint-expression";
+  ExprResult ConstraintExprResult =
+      Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
+  if (ConstraintExprResult.isInvalid())
     return nullptr;
-  }
 
   ExpectAndConsumeSemi(diag::err_expected_semi_declaration);
   Expr *ConstraintExpr = ConstraintExprResult.get();

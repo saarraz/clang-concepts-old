@@ -2549,6 +2549,17 @@ void StmtPrinter::VisitCXXFoldExpr(CXXFoldExpr *E) {
   OS << ")";
 }
 
+void StmtPrinter::VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) {
+  NestedNameSpecifierLoc NNS = E->getNestedNameSpecifierLoc();
+  if (NNS)
+    NNS.getNestedNameSpecifier()->print(OS, Policy);
+  if (E->getTemplateKWLoc().isValid())
+    OS << "template ";
+  OS << E->getNamedConcept()->getName();
+  printTemplateArgumentList(OS, E->getTemplateArgsAsWritten()->arguments(),
+                            Policy);
+}
+
 // C++ Coroutines TS
 
 void StmtPrinter::VisitCoroutineBodyStmt(CoroutineBodyStmt *S) {

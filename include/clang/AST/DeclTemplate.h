@@ -3058,9 +3058,9 @@ public:
     ConstraintExpr = CE;
   }
 
-  // TODO: Should do source range properly.
+
   SourceRange getSourceRange() const override LLVM_READONLY {
-    return SourceRange(getLocation(), getLocation());
+    return SourceRange(getLocation(), getConstraintExpr()->getLocEnd());
   }
 
   // Implement isa/cast/dyncast/etc.

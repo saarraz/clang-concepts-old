@@ -3889,14 +3889,43 @@ Sema::CheckVarTemplateId(const CXXScopeSpec &SS,
 
 ExprResult
 Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
-                             const DeclarationNameInfo &NameInfo,
-                             ConceptDecl *Template,
-                             SourceLocation TemplateLoc,
+                             SourceLocation TemplateKWLoc,
+                             SourceLocation ConceptNameLoc,
+                             ConceptDecl *NamedConcept,
                              const TemplateArgumentListInfo *TemplateArgs) {
-  // TODO: Do more stuff here, caller expects constraint
-  // expression to be returned. Works for non-dependent bool
-  // constraint expressions right now.
-  return Template->getConstraintExpr();
+  assert(NamedConcept && "A concept template id without a template?");
+
+  llvm::SmallVector<TemplateArgument, 4> Converted;
+  if (CheckTemplateArgumentList(NamedConcept, NamedConcept->getLocStart(),
+                           const_cast<TemplateArgumentListInfo&>(*TemplateArgs),
+                                /*PartialTemplateArgs=*/false, Converted,
+                                /*UpdateArgsWithConversion=*/false))
+    return ExprError();
+
+  bool IsSatisfied = true;
+  bool IsDependent = false;
+  for (TemplateArgument &Arg : Converted)
+    if (Arg.isInstantiationDependent()) {
+      IsDependent = true;
+      break;
+    }
+  if (!IsDependent) {
+    InstantiatingTemplate Inst(*this, ConceptNameLoc,
+        InstantiatingTemplate::ConstraintsCheck{}, NamedConcept, Converted,
+        SourceRange(SS.isSet() ? SS.getBeginLoc() : ConceptNameLoc,
+                    TemplateArgs->getRAngleLoc()));
+    MultiLevelTemplateArgumentList MLTAL;
+    MLTAL.addOuterTemplateArguments(Converted);
+    if (CalculateConstraintSatisfaction(NamedConcept, MLTAL,
+                                        NamedConcept->getConstraintExpr(),
+                                        IsSatisfied))
+      return ExprError();
+  }
+  return ConceptSpecializationExpr::Create(Context,
+      SS.isSet() ? SS.getWithLocInContext(Context) : NestedNameSpecifierLoc{},
+      TemplateKWLoc, ConceptNameLoc, NamedConcept,
+      ASTTemplateArgumentListInfo::Create(Context, *TemplateArgs), Converted,
+      IsSatisfied);
 }
 
 ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
@@ -3930,9 +3959,10 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
   }
 
   if (R.getAsSingle<ConceptDecl>() && !DependentArguments) {
-    return CheckConceptTemplateId(SS, R.getLookupNameInfo(),
+    return CheckConceptTemplateId(SS, TemplateKWLoc,
+                                  R.getLookupNameInfo().getBeginLoc(),
                                   R.getAsSingle<ConceptDecl>(),
-                                  TemplateKWLoc, TemplateArgs);
+                                  TemplateArgs);
   }
 
   // We don't want lookup warnings at this point.
@@ -7709,19 +7739,6 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
                                              ConstraintExpr);
   if (!NewDecl)
     return nullptr;
-
-  if (!ConstraintExpr->isTypeDependent() &&
-      ConstraintExpr->getType() != Context.BoolTy) {
-    // C++2a [temp.constr.atomic]p3:
-    // E shall be a constant expression of type bool.
-    // TODO: Do this check for individual atomic constraints
-    // and not the constraint expression. Probably should do it in
-    // ParseConstraintExpression.
-    Diag(ConstraintExpr->getSourceRange().getBegin(),
-        diag::err_concept_initialized_with_non_bool_type)
-      << ConstraintExpr->getType();
-    NewDecl->setInvalidDecl();
-  }
 
   if (NewDecl->getAssociatedConstraints()) {
     // C++2a [temp.concept]p4:

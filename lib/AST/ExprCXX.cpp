@@ -29,6 +29,9 @@
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Sema/Template.h"
+#include "clang/Sema/SemaDiagnostic.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1433,3 +1436,75 @@ TypeTraitExpr *TypeTraitExpr::CreateDeserialized(const ASTContext &C,
 }
 
 void ArrayTypeTraitExpr::anchor() {}
+
+ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
+    NestedNameSpecifierLoc NNS, SourceLocation TemplateKWLoc,
+    SourceLocation ConceptNameLoc, ConceptDecl *CD,
+    const ASTTemplateArgumentListInfo *ArgsAsWritten,
+    ArrayRef<TemplateArgument> ConvertedArgs, bool IsSatisfied)
+    : Expr(ConceptSpecializationExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
+           /*TypeDependent=*/false,
+           // All the flags below are set in setTemplateArguments.
+           /*ValueDependent=*/false, /*InstantiationDependent=*/false,
+           /*ContainsUnexpandedParameterPacks=*/false),
+      NestedNameSpec(NNS), TemplateKWLoc(TemplateKWLoc),
+      ConceptNameLoc(ConceptNameLoc), NamedConcept(CD, IsSatisfied),
+      NumTemplateArgs(ConvertedArgs.size()) {
+  setTemplateArguments(ArgsAsWritten, ConvertedArgs);
+}
+
+ConceptSpecializationExpr::ConceptSpecializationExpr(EmptyShell Empty,
+    unsigned NumTemplateArgs)
+    : Expr(ConceptSpecializationExprClass, Empty),
+      NumTemplateArgs(NumTemplateArgs) { }
+
+void ConceptSpecializationExpr::setTemplateArguments(
+    const ASTTemplateArgumentListInfo *ArgsAsWritten,
+    ArrayRef<TemplateArgument> Converted) {
+  assert(Converted.size() == NumTemplateArgs);
+  assert(!ArgsAsWritten && "setTemplateArguments can only be used once");
+  this->ArgsAsWritten = ArgsAsWritten;
+  std::uninitialized_copy(Converted.begin(), Converted.end(),
+                          getTrailingObjects<TemplateArgument>());
+  bool IsDependent = false;
+  bool ContainsUnexpandedParameterPack = false;
+  for (const TemplateArgumentLoc& LocInfo : ArgsAsWritten->arguments()) {
+    if (LocInfo.getArgument().isInstantiationDependent()) {
+      IsDependent = true;
+      if (ContainsUnexpandedParameterPack)
+        break;
+    }
+    if (LocInfo.getArgument().containsUnexpandedParameterPack()) {
+      ContainsUnexpandedParameterPack = true;
+      if (IsDependent)
+        break;
+    }
+  }
+  setValueDependent(IsDependent);
+  setInstantiationDependent(IsDependent);
+  setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
+}
+
+ConceptSpecializationExpr *
+ConceptSpecializationExpr::Create(ASTContext &C, NestedNameSpecifierLoc NNS,
+                                  SourceLocation TemplateKWLoc,
+                                  SourceLocation ConceptNameLoc,
+                                  ConceptDecl *CD,
+                               const ASTTemplateArgumentListInfo *ArgsAsWritten,
+                                  ArrayRef<TemplateArgument> ConvertedArgs,
+                                  bool IsSatisfied) {
+  void *Buffer = C.Allocate(totalSizeToAlloc<TemplateArgument>(
+                                ConvertedArgs.size()));
+  return new (Buffer) ConceptSpecializationExpr(C, NNS, TemplateKWLoc,
+                                                ConceptNameLoc, CD,
+                                                ArgsAsWritten, ConvertedArgs,
+                                                IsSatisfied);
+}
+
+ConceptSpecializationExpr *
+ConceptSpecializationExpr::Create(ASTContext &C, EmptyShell Empty,
+                                  unsigned NumTemplateArgs) {
+  void *Buffer = C.Allocate(totalSizeToAlloc<TemplateArgument>(
+                                NumTemplateArgs));
+  return new (Buffer) ConceptSpecializationExpr(Empty, NumTemplateArgs);
+}

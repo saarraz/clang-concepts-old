@@ -2394,14 +2394,17 @@ def err_concept_specified_specialization : Error<
 def err_concept_specialized : Error<
   "%select{function|variable}0 concept cannot be "
   "%select{explicitly instantiated|explicitly specialized|partially specialized}1">;
-def err_concept_initialized_with_non_bool_type : Error<
-  "constraint expression must be 'bool' but found %0">;
 def err_concept_decls_may_only_appear_in_global_namespace_scope : Error<
   "concept declarations may only appear in global or namespace scope">;
 def err_concept_extra_headers : Error<
   "extraneous template parameter list in concept definition">;
 def err_concept_no_associated_constraints : Error<
   "concept may not have associated constraints">;
+def err_non_constant_constraint_expression : Error<
+  "substitution into constraint expression resulted in a non-constant "
+  "expression">;
+def err_non_bool_atomic_constraint : Error<
+  "atomic constraint must be of type 'bool' (found %0)">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
@@ -4359,6 +4362,10 @@ def note_prior_template_arg_substitution : Note<
   " template parameter%1 %2">;
 def note_template_default_arg_checking : Note<
   "while checking a default template argument used here">;
+def note_concept_specialization_here : Note<
+  "while checking the satisfaction of concept '%0' requested here">;
+def note_constraint_substitution_here : Note<
+  "while substituting template arguments into constraint expression here">;
 def note_instantiation_contexts_suppressed : Note<
   "(skipping %0 context%s0 in backtrace; use -ftemplate-backtrace-limit=0 to "
   "see all)">;

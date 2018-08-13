@@ -2940,7 +2940,24 @@ public:
                                   RParenLoc, Length, PartialArgs);
   }
 
-  /// \brief Build a new Objective-C boxed expression.
+  /// \brief Build a new concept specialization expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildConceptSpecializationExpr(NestedNameSpecifierLoc NNS,
+      SourceLocation TemplateKWLoc, SourceLocation ConceptNameLoc,
+      ConceptDecl *NamedConcept, TemplateArgumentListInfo *TALI) {
+    CXXScopeSpec SS;
+    SS.Adopt(NNS);
+    ExprResult Result = getSema().CheckConceptTemplateId(SS, TemplateKWLoc,
+                                                         ConceptNameLoc,
+                                                         NamedConcept, TALI);
+    if (Result.isInvalid())
+      return ExprError();
+    return Result;
+  }
+
+    /// \brief Build a new Objective-C boxed expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
@@ -10615,6 +10632,22 @@ TreeTransform<Derived>::TransformTypeTraitExpr(TypeTraitExpr *E) {
                                        Args,
                                        E->getLocEnd());
 }
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformConceptSpecializationExpr(
+                                                 ConceptSpecializationExpr *E) {
+  const ASTTemplateArgumentListInfo *Old = E->getTemplateArgsAsWritten();
+  TemplateArgumentListInfo TransArgs(Old->LAngleLoc, Old->RAngleLoc);
+  if (getDerived().TransformTemplateArguments(Old->getTemplateArgs(),
+                                              Old->NumTemplateArgs, TransArgs))
+    return ExprError();
+
+  return getDerived().RebuildConceptSpecializationExpr(
+      E->getNestedNameSpecifierLoc(), E->getTemplateKWLoc(),
+      E->getConceptNameLoc(), E->getNamedConcept(), &TransArgs);
+}
+
 
 template<typename Derived>
 ExprResult
