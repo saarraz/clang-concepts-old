@@ -120,3 +120,17 @@ Sema::CalculateConstraintSatisfaction(ConceptDecl *NamedConcept,
 
   return false;
 }
+
+bool Sema::CheckRedeclarationConstraintMatch(ArrayRef<const Expr *> OldAC,
+                                             ArrayRef<const Expr *> NewAC) {
+  if (NewAC.empty() && OldAC.empty())
+    return true; // Nothing to check; no mismatch.
+  if (NewAC.size() != OldAC.size())
+    return false;
+  llvm::FoldingSetNodeID OldACInfo, NewACInfo;
+  for (const Expr *E : NewAC)
+    E->Profile(NewACInfo, Context, /*Canonical=*/true);
+  for (const Expr *E : OldAC)
+    E->Profile(OldACInfo, Context, /*Canonical=*/true);
+  return NewACInfo == OldACInfo;
+}
