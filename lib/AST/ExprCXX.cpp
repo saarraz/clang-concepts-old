@@ -1462,7 +1462,7 @@ void ConceptSpecializationExpr::setTemplateArguments(
     const ASTTemplateArgumentListInfo *ArgsAsWritten,
     ArrayRef<TemplateArgument> Converted) {
   assert(Converted.size() == NumTemplateArgs);
-  assert(!ArgsAsWritten && "setTemplateArguments can only be used once");
+  assert(!this->ArgsAsWritten && "setTemplateArguments can only be used once");
   this->ArgsAsWritten = ArgsAsWritten;
   std::uninitialized_copy(Converted.begin(), Converted.end(),
                           getTrailingObjects<TemplateArgument>());

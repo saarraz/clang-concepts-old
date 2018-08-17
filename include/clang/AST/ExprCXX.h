@@ -4438,7 +4438,7 @@ class ConceptSpecializationExpr final : public Expr,
 
   /// \brief The template argument list source info used to specialize the
   /// concept.
-  const ASTTemplateArgumentListInfo *ArgsAsWritten;
+  const ASTTemplateArgumentListInfo *ArgsAsWritten = nullptr;
 
   /// \brief The number of template arguments in the tail-allocated list of
   /// converted template arguments.
