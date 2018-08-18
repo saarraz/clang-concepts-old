@@ -4430,6 +4430,12 @@ class ConceptSpecializationExpr final : public Expr,
   /// \brief The location of the concept name in the expression.
   SourceLocation ConceptNameLoc;
 
+  /// \brief The declaration found by name lookup when the expression was
+  /// created.
+  /// Can differ from NamedConcept when, for example, the concept was found
+  /// through a UsingShadowDecl.
+  NamedDecl *FoundDecl;
+
   /// \brief The concept named, and whether or not the concept with the given
   /// arguments was satisfied when the expression was created.
   /// If any of the template arguments are dependent (this expr would then be
@@ -4446,8 +4452,8 @@ class ConceptSpecializationExpr final : public Expr,
 
   ConceptSpecializationExpr(ASTContext &C, NestedNameSpecifierLoc NNS,
                             SourceLocation TemplateKWLoc,
-                            SourceLocation ConceptNameLoc,
-                            ConceptDecl *CD,
+                            SourceLocation ConceptNameLoc, NamedDecl *FoundDecl,
+                            ConceptDecl *NamedConcept,
                             const ASTTemplateArgumentListInfo *ArgsAsWritten,
                             ArrayRef<TemplateArgument> ConvertedArgs,
                             bool IsSatisfied);
@@ -4459,7 +4465,8 @@ public:
   static ConceptSpecializationExpr *
   Create(ASTContext &C, NestedNameSpecifierLoc NNS,
          SourceLocation TemplateKWLoc, SourceLocation ConceptNameLoc,
-         ConceptDecl *CD, const ASTTemplateArgumentListInfo *ArgsAsWritten,
+         NamedDecl *FoundDecl, ConceptDecl *NamedConcept,
+         const ASTTemplateArgumentListInfo *ArgsAsWritten,
          ArrayRef<TemplateArgument> ConvertedArgs, bool IsSatisfied);
 
   static ConceptSpecializationExpr *
@@ -4467,6 +4474,10 @@ public:
 
   const NestedNameSpecifierLoc &getNestedNameSpecifierLoc() const {
     return NestedNameSpec;
+  }
+
+  NamedDecl *getFoundDecl() const {
+    return FoundDecl;
   }
 
   ConceptDecl *getNamedConcept() const {

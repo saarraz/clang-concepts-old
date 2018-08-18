@@ -102,14 +102,21 @@ Sema::CalculateConstraintSatisfaction(ConceptDecl *NamedConcept,
   if (!CheckConstraintExpression(E.get()))
     return true;
 
-  if (!E.get()->EvaluateAsBooleanCondition(IsSatisfied, Context)) {
-      // C++2a [temp.constr.atomic]p1
-      //   ...E shall be a constant expression of type bool.
+  SmallVector<PartialDiagnosticAt, 2> EvaluationDiags;
+  Expr::EvalResult EvalResult;
+  EvalResult.Diag = &EvaluationDiags;
+  if (!E.get()->EvaluateAsRValue(EvalResult, Context)) {
+    // C++2a [temp.constr.atomic]p1
+    //   ...E shall be a constant expression of type bool.
     Diag(E.get()->getLocStart(),
          diag::err_non_constant_constraint_expression)
         << E.get()->getSourceRange();
+    for (const PartialDiagnosticAt &PDiag : EvaluationDiags)
+      Diag(PDiag.first, PDiag.second);
     return true;
   }
+
+  IsSatisfied = EvalResult.Val.getInt().getBoolValue();
 
   return false;
 }

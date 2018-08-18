@@ -2555,7 +2555,7 @@ void StmtPrinter::VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) {
     NNS.getNestedNameSpecifier()->print(OS, Policy);
   if (E->getTemplateKWLoc().isValid())
     OS << "template ";
-  OS << E->getNamedConcept()->getName();
+  OS << E->getFoundDecl()->getName();
   printTemplateArgumentList(OS, E->getTemplateArgsAsWritten()->arguments(),
                             Policy);
 }

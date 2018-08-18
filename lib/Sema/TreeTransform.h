@@ -2946,11 +2946,13 @@ public:
   /// Subclasses may override this routine to provide different behavior.
   ExprResult RebuildConceptSpecializationExpr(NestedNameSpecifierLoc NNS,
       SourceLocation TemplateKWLoc, SourceLocation ConceptNameLoc,
-      ConceptDecl *NamedConcept, TemplateArgumentListInfo *TALI) {
+      NamedDecl *FoundDecl, ConceptDecl *NamedConcept,
+      TemplateArgumentListInfo *TALI) {
     CXXScopeSpec SS;
     SS.Adopt(NNS);
     ExprResult Result = getSema().CheckConceptTemplateId(SS, TemplateKWLoc,
                                                          ConceptNameLoc,
+                                                         FoundDecl,
                                                          NamedConcept, TALI);
     if (Result.isInvalid())
       return ExprError();
@@ -10645,7 +10647,8 @@ TreeTransform<Derived>::TransformConceptSpecializationExpr(
 
   return getDerived().RebuildConceptSpecializationExpr(
       E->getNestedNameSpecifierLoc(), E->getTemplateKWLoc(),
-      E->getConceptNameLoc(), E->getNamedConcept(), &TransArgs);
+      E->getConceptNameLoc(), E->getFoundDecl(), E->getNamedConcept(),
+      &TransArgs);
 }
 
 

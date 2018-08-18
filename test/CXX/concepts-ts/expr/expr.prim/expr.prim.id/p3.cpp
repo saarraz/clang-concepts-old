@@ -19,12 +19,14 @@ struct A {
   }
 };
 struct B {
-  static int add(int a, int b) {
+  static int add(int a, int b) { // expected-note{{declared here}}
     return a + b;
   }
 };
 template<typename U>
-concept C4 = U::add(1, 2) == 3; // expected-error {{substitution into constraint expression resulted in a non-constant expression}}
+concept C4 = U::add(1, 2) == 3;
+// expected-error@-1{{substitution into constraint expression resulted in a non-constant expression}}
+// expected-note@-2{{non-constexpr function 'add' cannot be used in a constant expression}}
 static_assert(C4<A>);
 static_assert(!C4<B>); // expected-note {{while checking the satisfaction of concept 'C4<B>' requested here}}
 
@@ -126,9 +128,12 @@ concept C6 = sizeof(T) == 1 && sizeof(typename T3<T>::type) == 1;
 // expected-note@-2{{in instantiation of template class 'T3<char>' requested here}}
 
 template<typename T>
-concept C7 = sizeof(T) == 1 || sizeof(typename T3<T>::type) == 1;
+concept C7 = sizeof(T) == 1 || sizeof(
 // expected-note@-1{{while substituting template arguments into constraint expression here}}
-// expected-note@-2{{in instantiation of template class 'T3<short>' requested here}}
+    typename
+      T3<T>
+// expected-note@-1{{in instantiation of template class 'T3<short>' requested here}}
+        ::type) == 1;
 
 static_assert(!C6<short>);
 static_assert(!C6<char>); // expected-note{{while checking the satisfaction of concept 'C6<char>' requested here}}

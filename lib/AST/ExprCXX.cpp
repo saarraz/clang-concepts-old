@@ -1439,8 +1439,8 @@ void ArrayTypeTraitExpr::anchor() {}
 
 ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
     NestedNameSpecifierLoc NNS, SourceLocation TemplateKWLoc,
-    SourceLocation ConceptNameLoc, ConceptDecl *CD,
-    const ASTTemplateArgumentListInfo *ArgsAsWritten,
+    SourceLocation ConceptNameLoc, NamedDecl *FoundDecl,
+    ConceptDecl *NamedConcept, const ASTTemplateArgumentListInfo *ArgsAsWritten,
     ArrayRef<TemplateArgument> ConvertedArgs, bool IsSatisfied)
     : Expr(ConceptSpecializationExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
            /*TypeDependent=*/false,
@@ -1448,7 +1448,8 @@ ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
            /*ValueDependent=*/false, /*InstantiationDependent=*/false,
            /*ContainsUnexpandedParameterPacks=*/false),
       NestedNameSpec(NNS), TemplateKWLoc(TemplateKWLoc),
-      ConceptNameLoc(ConceptNameLoc), NamedConcept(CD, IsSatisfied),
+      ConceptNameLoc(ConceptNameLoc), FoundDecl(FoundDecl),
+      NamedConcept(NamedConcept, IsSatisfied),
       NumTemplateArgs(ConvertedArgs.size()) {
   setTemplateArguments(ArgsAsWritten, ConvertedArgs);
 }
@@ -1467,21 +1468,27 @@ void ConceptSpecializationExpr::setTemplateArguments(
   std::uninitialized_copy(Converted.begin(), Converted.end(),
                           getTrailingObjects<TemplateArgument>());
   bool IsDependent = false;
+  bool IsInstantiationDependent = false;
   bool ContainsUnexpandedParameterPack = false;
   for (const TemplateArgumentLoc& LocInfo : ArgsAsWritten->arguments()) {
-    if (LocInfo.getArgument().isInstantiationDependent()) {
+    if (LocInfo.getArgument().isDependent()) {
       IsDependent = true;
-      if (ContainsUnexpandedParameterPack)
+      if (ContainsUnexpandedParameterPack && IsInstantiationDependent)
+        break;
+    }
+    if (LocInfo.getArgument().isInstantiationDependent()) {
+      IsInstantiationDependent = true;
+      if (ContainsUnexpandedParameterPack && IsDependent)
         break;
     }
     if (LocInfo.getArgument().containsUnexpandedParameterPack()) {
       ContainsUnexpandedParameterPack = true;
-      if (IsDependent)
+      if (IsDependent && IsInstantiationDependent)
         break;
     }
   }
   setValueDependent(IsDependent);
-  setInstantiationDependent(IsDependent);
+  setInstantiationDependent(IsInstantiationDependent);
   setContainsUnexpandedParameterPack(ContainsUnexpandedParameterPack);
 }
 
@@ -1489,16 +1496,17 @@ ConceptSpecializationExpr *
 ConceptSpecializationExpr::Create(ASTContext &C, NestedNameSpecifierLoc NNS,
                                   SourceLocation TemplateKWLoc,
                                   SourceLocation ConceptNameLoc,
-                                  ConceptDecl *CD,
+                                  NamedDecl *FoundDecl,
+                                  ConceptDecl *NamedConcept,
                                const ASTTemplateArgumentListInfo *ArgsAsWritten,
                                   ArrayRef<TemplateArgument> ConvertedArgs,
                                   bool IsSatisfied) {
   void *Buffer = C.Allocate(totalSizeToAlloc<TemplateArgument>(
                                 ConvertedArgs.size()));
   return new (Buffer) ConceptSpecializationExpr(C, NNS, TemplateKWLoc,
-                                                ConceptNameLoc, CD,
-                                                ArgsAsWritten, ConvertedArgs,
-                                                IsSatisfied);
+                                                ConceptNameLoc, FoundDecl,
+                                                NamedConcept, ArgsAsWritten,
+                                                ConvertedArgs, IsSatisfied);
 }
 
 ConceptSpecializationExpr *

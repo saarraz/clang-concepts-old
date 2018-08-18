@@ -6199,7 +6199,7 @@ public:
   ExprResult
   CheckConceptTemplateId(const CXXScopeSpec &SS,
                          SourceLocation TemplateKWLoc,
-                         SourceLocation ConceptNameLoc,
+                         SourceLocation ConceptNameLoc, NamedDecl *FoundDecl,
                          ConceptDecl *NamedConcept,
                          const TemplateArgumentListInfo *TemplateArgs);
 

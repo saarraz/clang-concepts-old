@@ -3891,6 +3891,7 @@ ExprResult
 Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
                              SourceLocation TemplateKWLoc,
                              SourceLocation ConceptNameLoc,
+                             NamedDecl *FoundDecl,
                              ConceptDecl *NamedConcept,
                              const TemplateArgumentListInfo *TemplateArgs) {
   assert(NamedConcept && "A concept template id without a template?");
@@ -3903,13 +3904,14 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
     return ExprError();
 
   bool IsSatisfied = true;
-  bool IsDependent = false;
-  for (TemplateArgument &Arg : Converted)
+  bool IsInstantiationDependent = false;
+  for (TemplateArgument &Arg : Converted) {
     if (Arg.isInstantiationDependent()) {
-      IsDependent = true;
+      IsInstantiationDependent = true;
       break;
     }
-  if (!IsDependent) {
+  }
+  if (!IsInstantiationDependent) {
     InstantiatingTemplate Inst(*this, ConceptNameLoc,
         InstantiatingTemplate::ConstraintsCheck{}, NamedConcept, Converted,
         SourceRange(SS.isSet() ? SS.getBeginLoc() : ConceptNameLoc,
@@ -3923,7 +3925,7 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
   }
   return ConceptSpecializationExpr::Create(Context,
       SS.isSet() ? SS.getWithLocInContext(Context) : NestedNameSpecifierLoc{},
-      TemplateKWLoc, ConceptNameLoc, NamedConcept,
+      TemplateKWLoc, ConceptNameLoc, FoundDecl, NamedConcept,
       ASTTemplateArgumentListInfo::Create(Context, *TemplateArgs), Converted,
       IsSatisfied);
 }
@@ -3961,8 +3963,8 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
   if (R.getAsSingle<ConceptDecl>() && !DependentArguments) {
     return CheckConceptTemplateId(SS, TemplateKWLoc,
                                   R.getLookupNameInfo().getBeginLoc(),
-                                  R.getAsSingle<ConceptDecl>(),
-                                  TemplateArgs);
+                                  R.getFoundDecl(),
+                                  R.getAsSingle<ConceptDecl>(), TemplateArgs);
   }
 
   // We don't want lookup warnings at this point.
