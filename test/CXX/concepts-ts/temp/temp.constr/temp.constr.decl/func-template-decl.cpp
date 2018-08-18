@@ -9,23 +9,6 @@ int A();
 
 } // end namespace nodiag
 
-namespace diag {
-
-template <typename T> requires true // expected-note{{previous template declaration is here}}
-int A();
-template <typename T> int A(); // expected-error{{associated constraints differ in template redeclaration}}
-
-template <typename T> int B(); // expected-note{{previous template declaration is here}}
-template <typename T> requires true // expected-error{{associated constraints differ in template redeclaration}}
-int B();
-
-template <typename T> requires true // expected-note{{previous template declaration is here}}
-int C();
-template <typename T> requires !0 // expected-error{{associated constraints differ in template redeclaration}}
-int C();
-
-} // end namespace diag
-
 namespace nodiag {
 
 struct AA {
@@ -42,11 +25,11 @@ namespace diag {
 
 template <unsigned N>
 struct TA {
-  template <template <unsigned> class TT> requires TT<N>::happy // expected-note{{previous template declaration is here}}
+  template <template <unsigned> class TT> requires TT<N>::happy
   int A();
 };
 
 template <unsigned N>
-template <template <unsigned> class TT> int TA<N>::A() { return sizeof(TT<N>); } // expected-error{{associated constraints differ in template redeclaration}}
+template <template <unsigned> class TT> int TA<N>::A() { return sizeof(TT<N>); } // expected-error{{out-of-line definition of 'A' does not match any declaration in 'TA<N>'}}
 
 } // end namespace diag

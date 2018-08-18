@@ -1452,10 +1452,10 @@ void ASTDeclWriter::VisitClassTemplateSpecializationDecl(
 
 void ASTDeclWriter::VisitClassTemplatePartialSpecializationDecl(
                                     ClassTemplatePartialSpecializationDecl *D) {
-  VisitClassTemplateSpecializationDecl(D);
-
   Record.AddTemplateParameterList(D->getTemplateParameters());
   Record.AddASTTemplateArgumentListInfo(D->getTemplateArgsAsWritten());
+
+  VisitClassTemplateSpecializationDecl(D);
 
   // These are read/set from/to the first declaration.
   if (D->getPreviousDecl() == nullptr) {
@@ -1512,10 +1512,10 @@ void ASTDeclWriter::VisitVarTemplateSpecializationDecl(
 
 void ASTDeclWriter::VisitVarTemplatePartialSpecializationDecl(
     VarTemplatePartialSpecializationDecl *D) {
-  VisitVarTemplateSpecializationDecl(D);
-
   Record.AddTemplateParameterList(D->getTemplateParameters());
   Record.AddASTTemplateArgumentListInfo(D->getTemplateArgsAsWritten());
+
+  VisitVarTemplateSpecializationDecl(D);
 
   // These are read/set from/to the first declaration.
   if (D->getPreviousDecl() == nullptr) {

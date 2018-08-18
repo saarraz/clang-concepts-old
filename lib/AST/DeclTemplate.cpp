@@ -233,15 +233,15 @@ void RedeclarableTemplateDecl::loadLazySpecializationsImpl() const {
   }
 }
 
-template<class EntryType>
+template<class EntryType, typename... ProfileArguments>
 typename RedeclarableTemplateDecl::SpecEntryTraits<EntryType>::DeclType *
 RedeclarableTemplateDecl::findSpecializationImpl(
-    llvm::FoldingSetVector<EntryType> &Specs, ArrayRef<TemplateArgument> Args,
-    void *&InsertPos) {
+    llvm::FoldingSetVector<EntryType> &Specs, void *&InsertPos,
+    ProfileArguments... ProfileArgs) {
   using SETraits = SpecEntryTraits<EntryType>;
 
   llvm::FoldingSetNodeID ID;
-  EntryType::Profile(ID, Args, getASTContext());
+  EntryType::Profile(ID, ProfileArgs..., getASTContext());
   EntryType *Entry = Specs.FindNodeOrInsertPos(ID, InsertPos);
   return Entry ? SETraits::getDecl(Entry)->getMostRecentDecl() : nullptr;
 }
@@ -256,8 +256,8 @@ void RedeclarableTemplateDecl::addSpecializationImpl(
 #ifndef NDEBUG
     void *CorrectInsertPos;
     assert(!findSpecializationImpl(Specializations,
-                                   SETraits::getTemplateArgs(Entry),
-                                   CorrectInsertPos) &&
+                                   CorrectInsertPos,
+                                   SETraits::getTemplateArgs(Entry)) &&
            InsertPos == CorrectInsertPos &&
            "given incorrect InsertPos for specialization");
 #endif
@@ -314,7 +314,7 @@ FunctionTemplateDecl::getSpecializations() const {
 FunctionDecl *
 FunctionTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
                                          void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), InsertPos, Args);
 }
 
 void FunctionTemplateDecl::addSpecialization(
@@ -386,7 +386,7 @@ ClassTemplateDecl::newCommon(ASTContext &C) const {
 ClassTemplateSpecializationDecl *
 ClassTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
                                       void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), InsertPos, Args);
 }
 
 void ClassTemplateDecl::AddSpecialization(ClassTemplateSpecializationDecl *D,
@@ -396,8 +396,10 @@ void ClassTemplateDecl::AddSpecialization(ClassTemplateSpecializationDecl *D,
 
 ClassTemplatePartialSpecializationDecl *
 ClassTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                                             Expr *AssociatedConstraints,
                                              void *&InsertPos) {
-  return findSpecializationImpl(getPartialSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getPartialSpecializations(), InsertPos,
+                                Args, AssociatedConstraints);
 }
 
 void ClassTemplateDecl::AddPartialSpecialization(
@@ -1002,7 +1004,7 @@ VarTemplateDecl::newCommon(ASTContext &C) const {
 VarTemplateSpecializationDecl *
 VarTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
                                     void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), InsertPos, Args);
 }
 
 void VarTemplateDecl::AddSpecialization(VarTemplateSpecializationDecl *D,
@@ -1012,8 +1014,10 @@ void VarTemplateDecl::AddSpecialization(VarTemplateSpecializationDecl *D,
 
 VarTemplatePartialSpecializationDecl *
 VarTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                                           Expr *AssociatedConstraints,
                                            void *&InsertPos) {
-  return findSpecializationImpl(getPartialSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getPartialSpecializations(), InsertPos, Args,
+                                AssociatedConstraints);
 }
 
 void VarTemplateDecl::AddPartialSpecialization(

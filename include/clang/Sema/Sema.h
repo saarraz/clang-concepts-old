@@ -5577,6 +5577,18 @@ public:
   /// A diagnostic is emitted if it is not, and false is returned.
   bool CheckConstraintExpression(Expr *CE);
 
+private:
+  /// \brief Caches pairs of template-like decls whose associated constraints
+  /// were checked for subsumption and whether or not the first's constraints
+  /// did in fact subsume the second's.
+  llvm::DenseMap<std::pair<NamedDecl *, NamedDecl *>, bool> SubsumptionCache;
+
+public:
+  /// \brief Returns whether the given declaration's associated constraints are
+  /// more constrained than another declaration's according to the partial
+  /// ordering of constraints.
+  bool IsMoreConstrained(NamedDecl *D1, Expr *AC1, NamedDecl *D2, Expr *AC2);
+
   /// \brief Check whether the given list of constraint expressions are
   /// satisfied (as if in a 'conjunction') given template arguments.
   /// \param ConstraintExprs a list of constraint expressions, treated as if
@@ -5640,6 +5652,9 @@ public:
   /// unsatisfied because it was ill-formed.
   void DiagnoseUnsatisfiedIllFormedConstraint(SourceLocation DiagnosticLocation,
                                               StringRef Diagnostic);
+
+  void DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
+                                              const TemplateParameterList *New);
 
   // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,

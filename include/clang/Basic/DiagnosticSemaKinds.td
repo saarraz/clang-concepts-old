@@ -2421,11 +2421,13 @@ def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
   "%select{and |because }0%1 does not satisfy %2">;
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
   "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
-def err_could_not_normalize_ill_formed_constraint : Error<
-  "required expansion of concept specialization %0 failed, substituted "
-  "expression would be illegal">;
-def note_could_not_normalize_ill_formed_constraint_reason : Note<
-  "because: %0">;
+def note_could_not_normalize_argument_substitution_failed : Note<
+  "could not substitute template arguments into %0 %1. "
+  "Template arguments to a concept specialization expression must be valid "
+  "expressions">;
+def note_could_not_normalize_unmatched_argument_list_after_subst : Note<
+  "could not substitute template arguments into %0 %1 - the resulting template "
+  "argument list does not match the concept's parameter list">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
