@@ -3236,11 +3236,7 @@ TemplateDeclInstantiator::InstantiateClassTemplatePartialSpecialization(
   void *InsertPos = nullptr;
   ClassTemplateSpecializationDecl *PrevDecl
     = ClassTemplate->findPartialSpecialization(Converted,
-                                               // TODO: Concepts - change this
-                                               // to associated constraints once
-                                               // we have them.
-                                               InstParams->getRequiresClause(),
-                                               InsertPos);
+          InstParams->getAssociatedConstraints(), InsertPos);
 
   // Build the canonical type that describes the converted template
   // arguments of the class template partial specialization.
@@ -3372,11 +3368,7 @@ TemplateDeclInstantiator::InstantiateVarTemplatePartialSpecialization(
   void *InsertPos = nullptr;
   VarTemplateSpecializationDecl *PrevDecl =
       VarTemplate->findPartialSpecialization(Converted,
-                                             // TODO: Concepts - change this
-                                             // to associated constraints once
-                                             // we have them.
-                                             InstParams->getRequiresClause(),
-                                             InsertPos);
+          InstParams->getAssociatedConstraints(), InsertPos);
 
   // Build the canonical type that describes the converted template
   // arguments of the variable template partial specialization.

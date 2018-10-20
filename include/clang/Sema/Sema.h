@@ -5587,7 +5587,8 @@ public:
   /// \brief Returns whether the given declaration's associated constraints are
   /// more constrained than another declaration's according to the partial
   /// ordering of constraints.
-  bool IsMoreConstrained(NamedDecl *D1, Expr *AC1, NamedDecl *D2, Expr *AC2);
+  bool IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
+                         NamedDecl *D2, ArrayRef<const Expr *> AC2);
 
   /// \brief Check whether the given list of constraint expressions are
   /// satisfied (as if in a 'conjunction') given template arguments.

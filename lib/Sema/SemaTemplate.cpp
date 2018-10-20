@@ -3597,9 +3597,7 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
     if (isSameAsPrimaryTemplate(VarTemplate->getTemplateParameters(),
                                 Converted)
         && (!Context.getLangOpts().ConceptsTS
-            // TODO: Concepts: change this to getAssociatedConstraints when we
-            // have them.
-            || TemplateParams->getRequiresClause() == nullptr)) {
+            || !TemplateParams->hasAssociatedConstraints())) {
       // C++ [temp.class.spec]p9b3:
       //
       //   -- The argument list of the specialization shall not be identical
@@ -3620,11 +3618,7 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
   if (IsPartialSpecialization)
     // FIXME: Template parameter list matters too
     PrevDecl = VarTemplate->findPartialSpecialization(Converted,
-                                            // TODO: Concepts - replace with
-                                            // AssociatedConstraints once we
-                                            // have them.
-                                            TemplateParams->getRequiresClause(),
-                                                      InsertPos);
+                   TemplateParams->getAssociatedConstraints(), InsertPos);
   else
     PrevDecl = VarTemplate->findSpecialization(Converted, InsertPos);
 
@@ -7003,8 +6997,8 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
     return false;
   }
 
-  if (!CheckRedeclarationConstraintMatch(Old->getRequiresClause(),
-                                         New->getRequiresClause())) {
+  if (!CheckRedeclarationConstraintMatch(Old->getAssociatedConstraints(),
+                                         New->getAssociatedConstraints())) {
     if (Complain)
       DiagnoseRedeclarationConstraintMismatch(Old, New);
     return false;
@@ -7560,11 +7554,7 @@ Sema::ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec,
   if (isPartialSpecialization)
     // FIXME: Template parameter list matters, too
     PrevDecl = ClassTemplate->findPartialSpecialization(Converted,
-                                            // TODO: Concepts: Replace with
-                                            // AssociatedConstraints once we
-                                            // have them.
-                                            TemplateParams->getRequiresClause(),
-                                                        InsertPos);
+        TemplateParams->getAssociatedConstraints(), InsertPos);
   else
     PrevDecl = ClassTemplate->findSpecialization(Converted, InsertPos);
 
@@ -7590,9 +7580,7 @@ Sema::ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec,
     if (Context.hasSameType(CanonType,
                         ClassTemplate->getInjectedClassNameSpecialization())
         && (!Context.getLangOpts().ConceptsTS
-            // TODO: Concepts: change this to getAssociatedConstraints when we
-            // have them.
-            || TemplateParams->getRequiresClause() == nullptr)) {
+            || !TemplateParams->hasAssociatedConstraints())) {
       // C++ [temp.class.spec]p9b3:
       //
       //   -- The argument list of the specialization shall not be identical

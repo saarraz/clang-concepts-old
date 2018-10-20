@@ -1998,14 +1998,13 @@ public:
 
   static void
   Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
-          Expr *AssociatedConstraints, ASTContext &Context) {
+          ArrayRef<const Expr *> AssociatedConstraints, ASTContext &Context) {
     ID.AddInteger(TemplateArgs.size());
     for (const TemplateArgument &TemplateArg : TemplateArgs)
       TemplateArg.Profile(ID, Context);
-    ID.AddBoolean(AssociatedConstraints != nullptr);
-    if (AssociatedConstraints) {
-        AssociatedConstraints->Profile(ID, Context, /*Canonical=*/true);
-    }
+    ID.AddInteger(AssociatedConstraints.size());
+    for (const Expr *Constraint : AssociatedConstraints)
+      Constraint->Profile(ID, Context, /*Canonical=*/true);
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
@@ -2131,7 +2130,8 @@ public:
   /// exists, otherwise return the insertion point.
   ClassTemplatePartialSpecializationDecl *
   findPartialSpecialization(ArrayRef<TemplateArgument> Args,
-                            Expr *AssociatedConstraints, void *&InsertPos);
+                            ArrayRef<const Expr *> AssociatedConstraints,
+                            void *&InsertPos);
 
   /// \brief Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.
@@ -2837,14 +2837,13 @@ public:
 
   static void
   Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
-          Expr *AssociatedConstraints, ASTContext &Context) {
+          ArrayRef<const Expr *> AssociatedConstraints, ASTContext &Context) {
     ID.AddInteger(TemplateArgs.size());
     for (const TemplateArgument &TemplateArg : TemplateArgs)
       TemplateArg.Profile(ID, Context);
-    ID.AddBoolean(AssociatedConstraints != nullptr);
-    if (AssociatedConstraints) {
-        AssociatedConstraints->Profile(ID, Context, /*Canonical=*/true);
-    }
+    ID.AddInteger(AssociatedConstraints.size());
+    for (const Expr *Constraint : AssociatedConstraints)
+      Constraint->Profile(ID, Context, /*Canonical=*/true);
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
@@ -2966,7 +2965,8 @@ public:
   /// exists, otherwise return the insertion point.
   VarTemplatePartialSpecializationDecl *
   findPartialSpecialization(ArrayRef<TemplateArgument> Args,
-                            Expr *AssociatedConstraints, void *&InsertPos);
+                            ArrayRef<const Expr *> AssociatedConstraints,
+                            void *&InsertPos);
 
   /// \brief Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.

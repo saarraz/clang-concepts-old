@@ -396,8 +396,7 @@ void ClassTemplateDecl::AddSpecialization(ClassTemplateSpecializationDecl *D,
 
 ClassTemplatePartialSpecializationDecl *
 ClassTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
-                                             Expr *AssociatedConstraints,
-                                             void *&InsertPos) {
+    ArrayRef<const Expr *> AssociatedConstraints, void *&InsertPos) {
   return findSpecializationImpl(getPartialSpecializations(), InsertPos,
                                 Args, AssociatedConstraints);
 }
@@ -1014,8 +1013,7 @@ void VarTemplateDecl::AddSpecialization(VarTemplateSpecializationDecl *D,
 
 VarTemplatePartialSpecializationDecl *
 VarTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
-                                           Expr *AssociatedConstraints,
-                                           void *&InsertPos) {
+     ArrayRef<const Expr *> AssociatedConstraints, void *&InsertPos) {
   return findSpecializationImpl(getPartialSpecializations(), InsertPos, Args,
                                 AssociatedConstraints);
 }

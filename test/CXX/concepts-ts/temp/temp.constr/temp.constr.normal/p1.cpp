@@ -23,7 +23,9 @@ namespace ill_formed_subst {
   concept C1 = true;
 
   template<typename T, typename U>
-  concept C2 = C1<typename B<U>::foo>; // expected-error 2{{implicit instantiation of undefined template 'ill_formed_subst::B<int>'}} expected-note 2{{could not substitute template arguments into C1<typename B<U>::foo> [with T = type-parameter-0-0, U = int]. Template arguments to a concept specialization expression must be valid expressions}}
+  concept C2 = C1<typename B<U>::foo>;
+  // expected-error@-1 2{{implicit instantiation of undefined template 'ill_formed_subst::B<int>'}}
+  // expected-note@-2 2{{when substituting into C1<typename B<U>::foo> [with T = type-parameter-0-0, U = int]. Make sure concept arguments are valid for any substitution}}
 
   template<typename T> requires C2<T, int>
   struct A {}; // expected-note {{template is declared here}}
@@ -37,7 +39,9 @@ namespace incorrect_args_after_subst {
   concept C1 = true; // expected-note 2{{template is declared here}}
 
   template<typename... Ts>
-  concept C2 = C1<Ts...>; // expected-error 2{{too many template arguments for template 'C1'}} expected-note 2{{could not substitute template arguments into C1<Ts...> [with Ts = <type-parameter-0-0, type-parameter-0-0>] - the resulting template argument list does not match the concept's parameter list}}
+  concept C2 = C1<Ts...>;
+  // expected-error@-1 2{{too many template arguments for template 'C1'}}
+  // expected-note@-2 2{{when substituting into C1<Ts...> [with Ts = <type-parameter-0-0, type-parameter-0-0>]. Make sure concept arguments are valid for any substitution}}
 
   template<typename T> requires C2<T, T>
   struct A {}; // expected-note{{template is declared here}}

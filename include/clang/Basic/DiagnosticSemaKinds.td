@@ -2422,12 +2422,8 @@ def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
   "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
 def note_could_not_normalize_argument_substitution_failed : Note<
-  "could not substitute template arguments into %0 %1. "
-  "Template arguments to a concept specialization expression must be valid "
-  "expressions">;
-def note_could_not_normalize_unmatched_argument_list_after_subst : Note<
-  "could not substitute template arguments into %0 %1 - the resulting template "
-  "argument list does not match the concept's parameter list">;
+  "when substituting into %0 %1. Make sure concept arguments are "
+  "valid for any substitution">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
