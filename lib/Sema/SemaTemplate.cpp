@@ -3941,7 +3941,7 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
   assert(NamedConcept && "A concept template id without a template?");
 
   llvm::SmallVector<TemplateArgument, 4> Converted;
-  if (CheckTemplateArgumentList(NamedConcept, NamedConcept->getLocStart(),
+  if (CheckTemplateArgumentList(NamedConcept, ConceptNameLoc,
                            const_cast<TemplateArgumentListInfo&>(*TemplateArgs),
                                 /*PartialTemplateArgs=*/false, Converted,
                                 /*UpdateArgsWithConversion=*/false))
