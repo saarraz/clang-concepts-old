@@ -2903,12 +2903,21 @@ TemplateDeclInstantiator::VisitClassTemplateSpecializationDecl(
 
   // Check that the template argument list is well-formed for this
   // class template.
+  bool InstantiationDependent;
   SmallVector<TemplateArgument, 4> Converted;
   if (SemaRef.CheckTemplateArgumentList(InstClassTemplate,
                                         D->getLocation(),
                                         InstTemplateArgs,
                                         false,
-                                        Converted))
+                                        Converted,
+                                        /*UpdateArgsWithConversion=*/true,
+                                        &InstantiationDependent))
+    return nullptr;
+
+  if (!InstantiationDependent
+      && SemaRef.EnsureTemplateArgumentListConstraints(InstClassTemplate,
+                                                       Converted,
+                                                       D->getLocation()))
     return nullptr;
 
   // Figure out where to insert this class template explicit specialization
@@ -3025,11 +3034,19 @@ Decl *TemplateDeclInstantiator::VisitVarTemplateSpecializationDecl(
     return nullptr;
 
   // Check that the template argument list is well-formed for this template.
+  bool InstantiationDependent;
   SmallVector<TemplateArgument, 4> Converted;
   if (SemaRef.CheckTemplateArgumentList(
           VarTemplate, VarTemplate->getLocStart(),
           const_cast<TemplateArgumentListInfo &>(VarTemplateArgsInfo), false,
-          Converted))
+          Converted, /*UpdateArgsWithConversion=*/true,
+          &InstantiationDependent))
+    return nullptr;
+
+  if (!InstantiationDependent
+      && SemaRef.EnsureTemplateArgumentListConstraints(VarTemplate, Converted,
+             SourceRange(VarTemplate->getLocation(),
+                         VarTemplateArgsInfo.getRAngleLoc())))
     return nullptr;
 
   // Find the variable template specialization declaration that

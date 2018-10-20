@@ -13,6 +13,8 @@
 #ifndef LLVM_CLANG_SEMA_TEMPLATEDEDUCTION_H
 #define LLVM_CLANG_SEMA_TEMPLATEDEDUCTION_H
 
+#include "clang/Sema/SemaConcept.h"
+#include "clang/Sema/Ownership.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "llvm/ADT/SmallVector.h"
@@ -192,6 +194,10 @@ public:
   ///
   /// FIXME: This should be kept internal to SemaTemplateDeduction.
   SmallVector<DeducedPack *, 8> PendingDeducedPacks;
+
+  /// \brief The constraint satisfaction details resulting from the associated
+  /// constraints satisfaction tests.
+  ConstraintSatisfaction AssociatedConstraintsSatisfaction;
 };
 
 } // end namespace sema
