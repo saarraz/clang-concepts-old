@@ -2857,10 +2857,9 @@ public:
                                      bool *pHadMultipleCandidates = nullptr);
 
   FunctionDecl *
-  resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
-                                              DeclAccessPair &FoundResult);
+  resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &FoundResult);
 
-  bool resolveAndFixAddressOfOnlyViableOverloadCandidate(
+  bool resolveAndFixAddressOfSingleOverloadCandidate(
       ExprResult &SrcExpr, bool DoFunctionPointerConversion = false);
 
   FunctionDecl *
@@ -5619,6 +5618,15 @@ public:
                                    ArrayRef<const Expr *> ConstraintExprs,
                                    ArrayRef<TemplateArgument> TemplateArgs,
                                    SourceRange TemplateIDRange,
+                                   ConstraintSatisfaction &Satisfaction);
+
+  /// \brief Check whether the given non-dependent constraint expression is
+  /// satisfied. Returns false and updates Satisfaction with the satisfaction
+  /// verdict if successful, emits a diagnostic and returns true if an error
+  /// occured and satisfaction could not be determined.
+  ///
+  /// \returns true if an error occurred, false otherwise.
+  bool CheckConstraintSatisfaction(const Expr *ConstraintExpr,
                                    ConstraintSatisfaction &Satisfaction);
 
   /// \brief Check that the associated constraints of a template declaration

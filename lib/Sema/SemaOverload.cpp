@@ -1205,7 +1205,20 @@ bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
     return NewTarget != OldTarget;
   }
 
-  // TODO: Concepts: Check function trailing requires clauses here.
+  Expr *NewRC = New->getTrailingRequiresClause(),
+       *OldRC = Old->getTrailingRequiresClause();
+  if ((NewRC != nullptr) != (OldRC != nullptr))
+    // RC are most certainly different - these are overloads.
+    return true;
+
+  if (NewRC) {
+    llvm::FoldingSetNodeID NewID, OldID;
+    NewRC->Profile(NewID, Context, /*Canonical=*/true);
+    OldRC->Profile(OldID, Context, /*Canonical=*/true);
+    if (NewID != OldID)
+      // RCs are not equivalent - these are overloads.
+      return true;
+  }
 
   // The signatures match; this is not an overload.
   return false;
@@ -6088,6 +6101,16 @@ Sema::AddOverloadCandidate(FunctionDecl *Function,
     Candidate.FailureKind = ovl_fail_ext_disabled;
     return;
   }
+
+  Expr *RequiresClause = Function->getTrailingRequiresClause();
+  if (LangOpts.ConceptsTS && RequiresClause) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckConstraintSatisfaction(RequiresClause, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+    }
+  }
 }
 
 ObjCMethodDecl *
@@ -6592,6 +6615,17 @@ Sema::AddMethodCandidate(CXXMethodDecl *Method, DeclAccessPair FoundDecl,
     Candidate.FailureKind = ovl_fail_enable_if;
     Candidate.DeductionFailure.Data = FailedAttr;
     return;
+  }
+
+  Expr *RequiresClause = Method->getTrailingRequiresClause();
+  if (LangOpts.ConceptsTS && RequiresClause) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckConstraintSatisfaction(RequiresClause, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+      return;
+    }
   }
 }
 
@@ -9086,6 +9120,20 @@ bool clang::isBetterOverloadCandidate(
       return Cmp == Comparison::Better;
   }
 
+  if (Cand1.Function && Cand2.Function) {
+    Expr *RC1 = Cand1.Function->getTrailingRequiresClause();
+    Expr *RC2 = Cand2.Function->getTrailingRequiresClause();
+    if (RC1 && RC2) {
+      bool MoreConstrained1 = S.IsMoreConstrained(Cand1.Function, RC1,
+                                                  Cand2.Function, RC2);
+      bool MoreConstrained2 = S.IsMoreConstrained(Cand2.Function, RC2,
+                                                  Cand1.Function, RC1);
+      if (MoreConstrained1 != MoreConstrained2)
+        return MoreConstrained1;
+    } else if (RC1 || RC2)
+      return RC1 != nullptr;
+  }
+
   if (S.getLangOpts().CUDA && Cand1.Function && Cand2.Function) {
     FunctionDecl *Caller = dyn_cast<FunctionDecl>(S.CurContext);
     return S.IdentifyCUDAPreference(Caller, Cand1.Function) >
@@ -9362,6 +9410,24 @@ static bool checkAddressOfFunctionIsAvailable(Sema &S, const FunctionDecl *FD,
         S.Diag(Loc, diag::err_addrof_function_disabled_by_enable_if_attr) << FD;
     }
     return false;
+  }
+
+  if (const Expr *RC = FD->getTrailingRequiresClause()) {
+    ConstraintSatisfaction Satisfaction;
+    if (S.CheckConstraintSatisfaction(RC, Satisfaction))
+      return false;
+    if (!Satisfaction.IsSatisfied) {
+      if (Complain) {
+        if (InOverloadResolution)
+          S.Diag(FD->getLocStart(),
+                 diag::note_ovl_candidate_unsatisfied_constraints);
+        else
+          S.Diag(Loc, diag::err_addrof_function_constraints_not_satisfied)
+              << FD;
+        S.DiagnoseUnsatisfiedConstraint(Satisfaction);
+      }
+      return false;
+    }
   }
 
   auto I = llvm::find_if(FD->parameters(), [](const ParmVarDecl *P) {
@@ -10219,6 +10285,20 @@ static void NoteFunctionCandidate(Sema &S, OverloadCandidate *Cand,
     (void)Available;
     assert(!Available);
     break;
+  }
+
+  case ovl_fail_constraints_not_satisfied: {
+    std::string Description;
+    OverloadCandidateKind FnKind =
+                 ClassifyOverloadCandidate(S, Cand->FoundDecl, Fn, Description);
+    S.Diag(Fn->getLocation(),
+           diag::note_ovl_candidate_constraints_not_satisfied)
+            << (unsigned) FnKind;
+    ConstraintSatisfaction Satisfaction;
+    if (S.CheckConstraintSatisfaction(Fn->getTrailingRequiresClause(),
+                                      Satisfaction))
+      break;
+    S.DiagnoseUnsatisfiedConstraint(Satisfaction);
   }
   }
 }
@@ -11208,13 +11288,14 @@ Sema::ResolveAddressOfOverloadedFunction(Expr *AddressOfExpr,
 /// resolve that function to a single function that can have its address taken.
 /// This will modify `Pair` iff it returns non-null.
 ///
-/// This routine can only realistically succeed if all but one candidates in the
-/// overload set for SrcExpr cannot have their addresses taken.
+/// This routine can only succeed if from all of the candidates in the overload
+/// set for SrcExpr that can have their addresses taken, there is one candidate
+/// that is more constrained than the rest.
 FunctionDecl *
-Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
-                                                  DeclAccessPair &Pair) {
+Sema::resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &Pair) {
   OverloadExpr::FindResult R = OverloadExpr::find(E);
   OverloadExpr *Ovl = R.Expression;
+  bool IsResultAmbiguous = false;
   FunctionDecl *Result = nullptr;
   DeclAccessPair DAP;
   // Don't use the AddressOfResolver because we're specifically looking for
@@ -11228,12 +11309,30 @@ Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
     if (!checkAddressOfFunctionIsAvailable(FD))
       continue;
 
-    // We have more than one result; quit.
-    if (Result)
-      return nullptr;
+    // We have more than one result - see if it is more constrained than the
+    // previous one.
+    if (Result) {
+      bool ResultMoreConstrained = IsMoreConstrained(Result,
+                                           Result->getAssociatedConstraints(),
+                                           FD, FD->getAssociatedConstraints());
+      bool FDMoreConstrained = IsMoreConstrained(FD,
+                                           FD->getAssociatedConstraints(),
+                                           Result,
+                                           Result->getAssociatedConstraints());
+      if (ResultMoreConstrained == FDMoreConstrained) {
+        IsResultAmbiguous = true;
+        continue;
+      } else if (ResultMoreConstrained)
+        continue;
+      // FD is more constrained replace Result with it.
+    }
+    IsResultAmbiguous = false;
     DAP = I.getPair();
     Result = FD;
   }
+
+  if (IsResultAmbiguous)
+    return nullptr;
 
   if (Result)
     Pair = DAP;
@@ -11241,19 +11340,19 @@ Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
 }
 
 /// \brief Given an overloaded function, tries to turn it into a non-overloaded
-/// function reference using resolveAddressOfOnlyViableOverloadCandidate. This
-/// will perform access checks, diagnose the use of the resultant decl, and, if
+/// function reference using resolveAddressOfSingleOverloadCandidate. This will
+/// perform access checks, diagnose the use of the resultant decl, and, if
 /// requested, potentially perform a function-to-pointer decay.
 ///
-/// Returns false if resolveAddressOfOnlyViableOverloadCandidate fails.
+/// Returns false if resolveAddressOfSingleOverloadCandidate fails.
 /// Otherwise, returns true. This may emit diagnostics and return true.
-bool Sema::resolveAndFixAddressOfOnlyViableOverloadCandidate(
+bool Sema::resolveAndFixAddressOfSingleOverloadCandidate(
     ExprResult &SrcExpr, bool DoFunctionPointerConverion) {
   Expr *E = SrcExpr.get();
   assert(E->getType() == Context.OverloadTy && "SrcExpr must be an overload");
 
   DeclAccessPair DAP;
-  FunctionDecl *Found = resolveAddressOfOnlyViableOverloadCandidate(E, DAP);
+  FunctionDecl *Found = resolveAddressOfSingleOverloadCandidate(E, DAP);
   if (!Found)
     return false;
 

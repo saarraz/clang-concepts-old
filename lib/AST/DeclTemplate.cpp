@@ -175,13 +175,19 @@ void TemplateDecl::anchor() {}
 
 llvm::SmallVector<const Expr *, 3>
 TemplateDecl::getAssociatedConstraints() const {
-  // TODO: Concepts: Append function trailing requires clause.
-  return TemplateParams->getAssociatedConstraints();
+  auto AC = TemplateParams->getAssociatedConstraints();
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(getTemplatedDecl()))
+    if (const Expr *TRC = FD->getTrailingRequiresClause())
+      AC.push_back(TRC);
+  return AC;
 }
 
 bool TemplateDecl::hasAssociatedConstraints() const {
-  // TODO: Concepts: Regard function trailing requires clause.
-  return TemplateParams->hasAssociatedConstraints();
+  if (TemplateParams->hasAssociatedConstraints())
+    return true;
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(getTemplatedDecl()))
+    return FD->getTrailingRequiresClause();
+  return false;
 }
 
 //===----------------------------------------------------------------------===//

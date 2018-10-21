@@ -70,19 +70,15 @@ Sema::DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
         << /*declaration*/0;
 }
 
-template<typename TemplateDeclT>
+template <typename AtomicEvaluator>
 static bool
-calculateConstraintSatisfaction(Sema& S, TemplateDeclT *Template,
-                                ArrayRef<TemplateArgument> TemplateArgs,
-                                SourceLocation TemplateNameLoc,
-                                MultiLevelTemplateArgumentList &MLTAL,
-                                const Expr *ConstraintExpr,
-                                ConstraintSatisfaction &Satisfaction) {
+calculateConstraintSatisfaction(Sema &S, const Expr *ConstraintExpr,
+                                ConstraintSatisfaction &Satisfaction,
+                                AtomicEvaluator &&Evaluator) {
   if (auto *BO = dyn_cast<BinaryOperator>(ConstraintExpr)) {
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr) {
-      if (calculateConstraintSatisfaction(S, Template, TemplateArgs,
-                                          TemplateNameLoc, MLTAL, BO->getLHS(),
-                                          Satisfaction))
+      if (calculateConstraintSatisfaction(S, BO->getLHS(), Satisfaction,
+                                          Evaluator))
         return true;
 
       bool IsLHSSatisfied = Satisfaction.IsSatisfied;
@@ -105,71 +101,37 @@ calculateConstraintSatisfaction(Sema& S, TemplateDeclT *Template,
         //    the second operand is satisfied.
         return false;
 
-      return calculateConstraintSatisfaction(S, Template, TemplateArgs,
-                                             TemplateNameLoc, MLTAL,
-                                             BO->getRHS(), Satisfaction);
+      return calculateConstraintSatisfaction(S, BO->getRHS(), Satisfaction,
+          std::forward<AtomicEvaluator>(Evaluator));
     }
   } else if (auto *PO = dyn_cast<ParenExpr>(ConstraintExpr))
-    return calculateConstraintSatisfaction(S, Template, TemplateArgs,
-                                           TemplateNameLoc, MLTAL,
-                                           PO->getSubExpr(), Satisfaction);
+    return calculateConstraintSatisfaction(S, PO->getSubExpr(), Satisfaction,
+        std::forward<AtomicEvaluator>(Evaluator));
   else if (auto *C = dyn_cast<ExprWithCleanups>(ConstraintExpr))
-    return calculateConstraintSatisfaction(S, Template, TemplateArgs,
-                                           TemplateNameLoc, MLTAL,
-                                           PO->getSubExpr(), Satisfaction);
+    return calculateConstraintSatisfaction(S, C->getSubExpr(), Satisfaction,
+        std::forward<AtomicEvaluator>(Evaluator));
 
-  EnterExpressionEvaluationContext ConstantEvaluated(
-          S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+  // An atomic constraint expression
+  ExprResult SubstitutedAtomicExpr = Evaluator(ConstraintExpr);
 
-  // Atomic constraint - substitute arguments and check satisfaction.
-  ExprResult SubstitutedExpression;
-  {
-    TemplateDeductionInfo Info(TemplateNameLoc);
-    Sema::InstantiatingTemplate Inst(S, ConstraintExpr->getLocStart(),
-        Sema::InstantiatingTemplate::ConstraintSubstitution{}, Template, Info,
-        ConstraintExpr->getSourceRange());
-    if (Inst.isInvalid())
-      return true;
-    // We do not want error diagnostics escaping here.
-    Sema::SFINAETrap Trap(S);
-    SubstitutedExpression = S.SubstExpr(const_cast<Expr*>(ConstraintExpr),
-                                        MLTAL);
-    if (SubstitutedExpression.isInvalid()) {
-      // C++2a [temp.constr.atomic]p1
-      //   ...If substitution results in an invalid type or expression, the
-      //   constraint is not satisfied.
-      if (!Trap.hasErrorOccurred())
-        // A non-SFINAE error has occured as a result of this substitution.
-        return true;
-
-      PartialDiagnosticAt SubstDiag{ SourceLocation(),
-                                     PartialDiagnostic::NullDiagnostic() };
-      Info.takeSFINAEDiagnostic(SubstDiag);
-      SmallString<128> DiagString;
-      DiagString = ": ";
-      SubstDiag.second.EmitToString(S.getDiagnostics(), DiagString);
-      Satisfaction.Details.emplace_back(
-          ConstraintExpr,
-          new (S.Context) ConstraintSatisfaction::SubstitutionDiagnostic{
-                  SubstDiag.first,
-                  std::string(DiagString.begin(), DiagString.end())});
-      Satisfaction.IsSatisfied = false;
-      return false;
-    }
-  }
-
-  if (!S.CheckConstraintExpression(SubstitutedExpression.get()))
+  if (SubstitutedAtomicExpr.isInvalid())
     return true;
 
+  if (!SubstitutedAtomicExpr.isUsable())
+    // Evaluator has decided satisfaction without yielding an expression.
+    return false;
+
+  EnterExpressionEvaluationContext ConstantEvaluated(
+      S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
   SmallVector<PartialDiagnosticAt, 2> EvaluationDiags;
   Expr::EvalResult EvalResult;
   EvalResult.Diag = &EvaluationDiags;
-  if (!SubstitutedExpression.get()->EvaluateAsRValue(EvalResult, S.Context)) {
+  if (!SubstitutedAtomicExpr.get()->EvaluateAsRValue(EvalResult, S.Context)) {
       // C++2a [temp.constr.atomic]p1
       //   ...E shall be a constant expression of type bool.
-    S.Diag(SubstitutedExpression.get()->getLocStart(),
+    S.Diag(SubstitutedAtomicExpr.get()->getLocStart(),
            diag::err_non_constant_constraint_expression)
-        << SubstitutedExpression.get()->getSourceRange();
+        << SubstitutedAtomicExpr.get()->getSourceRange();
     for (const PartialDiagnosticAt &PDiag : EvaluationDiags)
       S.Diag(PDiag.first, PDiag.second);
     return true;
@@ -178,9 +140,64 @@ calculateConstraintSatisfaction(Sema& S, TemplateDeclT *Template,
   Satisfaction.IsSatisfied = EvalResult.Val.getInt().getBoolValue();
   if (!Satisfaction.IsSatisfied)
     Satisfaction.Details.emplace_back(ConstraintExpr,
-                                      SubstitutedExpression.get());
+                                      SubstitutedAtomicExpr.get());
 
   return false;
+}
+
+template <typename TemplateDeclT>
+static bool calculateConstraintSatisfaction(
+    Sema &S, TemplateDeclT *Template, ArrayRef<TemplateArgument> TemplateArgs,
+    SourceLocation TemplateNameLoc, MultiLevelTemplateArgumentList &MLTAL,
+    const Expr *ConstraintExpr, ConstraintSatisfaction &Satisfaction) {
+  return calculateConstraintSatisfaction(
+      S, ConstraintExpr, Satisfaction, [&](const Expr *AtomicExpr) {
+        EnterExpressionEvaluationContext ConstantEvaluated(
+            S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+
+        // Atomic constraint - substitute arguments and check satisfaction.
+        ExprResult SubstitutedExpression;
+        {
+          TemplateDeductionInfo Info(TemplateNameLoc);
+          Sema::InstantiatingTemplate Inst(S, AtomicExpr->getLocStart(),
+              Sema::InstantiatingTemplate::ConstraintSubstitution{}, Template,
+              Info, AtomicExpr->getSourceRange());
+          if (Inst.isInvalid())
+            return ExprError();
+          // We do not want error diagnostics escaping here.
+          Sema::SFINAETrap Trap(S);
+          SubstitutedExpression = S.SubstExpr(const_cast<Expr *>(AtomicExpr),
+                                              MLTAL);
+          if (SubstitutedExpression.isInvalid()) {
+            // C++2a [temp.constr.atomic]p1
+            //   ...If substitution results in an invalid type or expression, the
+            //   constraint is not satisfied.
+            if (!Trap.hasErrorOccurred())
+              // A non-SFINAE error has occured as a result of this
+              // substitution.
+              return ExprError();
+
+            PartialDiagnosticAt SubstDiag{SourceLocation(),
+                                          PartialDiagnostic::NullDiagnostic()};
+            Info.takeSFINAEDiagnostic(SubstDiag);
+            SmallString<128> DiagString;
+            DiagString = ": ";
+            SubstDiag.second.EmitToString(S.getDiagnostics(), DiagString);
+            Satisfaction.Details.emplace_back(
+                AtomicExpr,
+                new (S.Context) ConstraintSatisfaction::SubstitutionDiagnostic{
+                        SubstDiag.first,
+                        std::string(DiagString.begin(), DiagString.end())});
+            Satisfaction.IsSatisfied = false;
+            return ExprEmpty();
+          }
+        }
+
+        if (!S.CheckConstraintExpression(SubstitutedExpression.get()))
+          return ExprError();
+
+        return SubstitutedExpression;
+      });
 }
 
 template<typename TemplateDeclT>
@@ -255,6 +272,15 @@ Sema::CheckConstraintSatisfaction(VarTemplatePartialSpecializationDecl* Partial,
   return ::CheckConstraintSatisfaction(*this, Partial, ConstraintExprs,
                                        TemplateArgs, TemplateIDRange,
                                        Satisfaction);
+}
+
+bool Sema::CheckConstraintSatisfaction(const Expr *ConstraintExpr,
+                                       ConstraintSatisfaction &Satisfaction) {
+  return calculateConstraintSatisfaction(
+      *this, ConstraintExpr, Satisfaction,
+      [](const Expr *AtomicExpr) -> ExprResult {
+        return ExprResult(const_cast<Expr *>(AtomicExpr));
+      });
 }
 
 bool Sema::EnsureTemplateArgumentListConstraints(

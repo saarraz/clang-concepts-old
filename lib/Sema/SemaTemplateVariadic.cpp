@@ -877,9 +877,13 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
 
       if (Chunk.Fun.hasTrailingReturnType()) {
         QualType T = Chunk.Fun.getTrailingReturnType().get();
-	if (!T.isNull() && T->containsUnexpandedParameterPack())
-	  return true;
+	    if (!T.isNull() && T->containsUnexpandedParameterPack())
+	      return true;
       }
+
+      if (Chunk.Fun.hasTrailingRequiresClause()
+          &&Chunk.Fun.TrailingRequiresClause->containsUnexpandedParameterPack())
+          return true;
       break;
 
     case DeclaratorChunk::MemberPointer:
