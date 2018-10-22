@@ -367,12 +367,13 @@ static void diagnoseWellFormedUnsatisfiedConstraintExpr(Sema &S,
     diagnoseWellFormedUnsatisfiedConstraintExpr(S, PE->getSubExpr(), First);
     return;
   } else if (auto *CSE = dyn_cast<ConceptSpecializationExpr>(SubstExpr)) {
-    if (CSE->getTemplateArguments().size() == 1) {
+    if (CSE->getTemplateArgsAsWritten()->NumTemplateArgs == 1) {
       S.Diag(
           CSE->getSourceRange().getBegin(),
           diag::
           note_single_arg_concept_specialization_constraint_evaluated_to_false)
-          << (int)First << CSE->getTemplateArguments()[0]
+          << (int)First
+          << CSE->getTemplateArgsAsWritten()->arguments()[0].getArgument()
           << CSE->getNamedConcept();
     } else {
       S.Diag(SubstExpr->getSourceRange().getBegin(),
