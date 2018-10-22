@@ -47,27 +47,53 @@ bool Sema::CheckConstraintExpression(Expr *ConstraintExpression) {
 }
 
 bool Sema::CheckRedeclarationConstraintMatch(ArrayRef<const Expr *> OldAC,
-                                             ArrayRef<const Expr *> NewAC) {
+                                             ArrayRef<const Expr *> NewAC,
+                                             const Expr **OldMismatch,
+                                             const Expr **NewMismatch) {
+  assert((!OldMismatch == !NewMismatch) &&
+         "Either both or neither of OldMismatch, NewMismatch must be provided");
   if (NewAC.empty() && OldAC.empty())
     return true; // Nothing to check; no mismatch.
-  if (NewAC.size() != OldAC.size())
+  if ((NewAC.size() != OldAC.size()) && !OldMismatch)
     return false;
-  llvm::FoldingSetNodeID OldACInfo, NewACInfo;
-  for (const Expr *E : NewAC)
-    E->Profile(NewACInfo, Context, /*Canonical=*/true);
-  for (const Expr *E : OldAC)
-    E->Profile(OldACInfo, Context, /*Canonical=*/true);
-  return NewACInfo == OldACInfo;
+  unsigned I = 0, C = std::min(NewAC.size(), OldAC.size());
+  for (; I < C; ++I) {
+    llvm::FoldingSetNodeID OldACInfo, NewACInfo;
+    OldAC[I]->Profile(OldACInfo, Context, /*Canonical=*/true);
+    NewAC[I]->Profile(NewACInfo, Context, /*Canonical=*/true);
+    if (OldACInfo != NewACInfo) {
+      if (OldMismatch) {
+        *OldMismatch = OldAC[I];
+        *NewMismatch = NewAC[I];
+      }
+      return false;
+    }
+  }
+  if (I < OldAC.size()) {
+    // OldAC is longer than NewAC - mismatch
+    if (OldMismatch) {
+      *OldMismatch = OldAC[I];
+      *NewMismatch = nullptr;
+    }
+    return false;
+  } else if (I < NewAC.size()) {
+    // NewAC is longer than OldAC - mismatch
+    if (OldMismatch) {
+      *OldMismatch = nullptr;
+      *NewMismatch = NewAC[I];
+    }
+    return false;
+  }
+  // They were the same size - a match!
+  return true;
 }
 
 void
-Sema::DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
-                                              const TemplateParameterList *New){
-  Diag(New->getTemplateLoc(),
-       diag::err_template_different_associated_constraints);
+Sema::DiagnoseRedeclarationConstraintMismatch(SourceLocation Old,
+                                              SourceLocation New){
+  Diag(New, diag::err_template_different_associated_constraints);
 
-  Diag(Old->getTemplateLoc(), diag::note_template_prev_declaration)
-        << /*declaration*/0;
+  Diag(Old, diag::note_template_prev_declaration) << /*declaration*/0;
 }
 
 template <typename AtomicEvaluator>

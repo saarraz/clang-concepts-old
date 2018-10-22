@@ -1550,7 +1550,12 @@ void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
   VisitTypeDecl(D);
 
   Record.push_back(D->wasDeclaredWithTypename());
-  // TODO: Concepts - constrained parameters.
+
+  Expr *CE = D->getConstraintExpression();
+  Record.push_back(CE != nullptr);
+  if (CE)
+    Record.AddStmt(CE);
+
   bool OwnsDefaultArg = D->hasDefaultArgument() &&
                         !D->defaultArgumentWasInherited();
   Record.push_back(OwnsDefaultArg);
@@ -1583,6 +1588,10 @@ void ASTDeclWriter::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
     // TODO: Concepts - constrained parameters.
     // Rest of NonTypeTemplateParmDecl.
     Record.push_back(D->isParameterPack());
+    Expr *CE = D->getConstraintExpression();
+    Record.push_back(CE != nullptr);
+    if (CE)
+      Record.AddStmt(CE);
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);
@@ -1613,6 +1622,10 @@ void ASTDeclWriter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
     // TODO: Concepts - constrained parameters.
     // Rest of TemplateTemplateParmDecl.
     Record.push_back(D->isParameterPack());
+    Expr *CE = D->getConstraintExpression();
+    Record.push_back(CE != nullptr);
+    if (CE)
+      Record.AddStmt(CE);
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);

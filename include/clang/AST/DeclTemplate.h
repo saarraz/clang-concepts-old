@@ -82,20 +82,24 @@ class TemplateParameterList final
   /// pack.
   unsigned ContainsUnexpandedParameterPack : 1;
 
-  /// Whether this template parameter list has an associated requires-clause
+  /// Whether this template parameter list has a requires clause.
   unsigned HasRequiresClause : 1;
 
+  /// Whether any of the template parameters has constrained-parameter
+  /// constraint-expression.
+  unsigned HasConstrainedParameters : 1;
+
 protected:
-  TemplateParameterList(SourceLocation TemplateLoc, SourceLocation LAngleLoc,
-                        ArrayRef<NamedDecl *> Params, SourceLocation RAngleLoc,
-                        Expr *RequiresClause);
+  TemplateParameterList(const ASTContext& C, SourceLocation TemplateLoc,
+                        SourceLocation LAngleLoc, ArrayRef<NamedDecl *> Params,
+                        SourceLocation RAngleLoc, Expr *RequiresClause);
 
   size_t numTrailingObjects(OverloadToken<NamedDecl *>) const {
     return NumParams;
   }
 
   size_t numTrailingObjects(OverloadToken<Expr *>) const {
-    return HasRequiresClause;
+    return HasRequiresClause ? 1 : 0;
   }
 
 public:
@@ -159,14 +163,23 @@ public:
     return ContainsUnexpandedParameterPack;
   }
 
+  /// \brief Determine whether this template parameter list contains a parameter
+  /// pack.
+  bool hasParameterPack() const {
+    for (const NamedDecl *P : asArray())
+      if (P->isParameterPack())
+        return true;
+    return false;
+  }
+
   /// \brief The constraint-expression of the associated requires-clause.
   Expr *getRequiresClause() {
-    return HasRequiresClause ? *getTrailingObjects<Expr *>() : nullptr;
+    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
   }
 
   /// \brief The constraint-expression of the associated requires-clause.
   const Expr *getRequiresClause() const {
-    return HasRequiresClause ? *getTrailingObjects<Expr *>() : nullptr;
+    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
   }
 
   /// \brief All associated constraints derived from this template parameter
@@ -204,15 +217,16 @@ class FixedSizeTemplateParameterListStorage
       >::type storage;
 
 public:
-  FixedSizeTemplateParameterListStorage(SourceLocation TemplateLoc,
+  FixedSizeTemplateParameterListStorage(const ASTContext &C,
+                                        SourceLocation TemplateLoc,
                                         SourceLocation LAngleLoc,
                                         ArrayRef<NamedDecl *> Params,
                                         SourceLocation RAngleLoc,
                                         Expr *RequiresClause)
       : FixedSizeStorageOwner(
             (assert(N == Params.size()),
-             assert(HasRequiresClause == static_cast<bool>(RequiresClause)),
-             new (static_cast<void *>(&storage)) TemplateParameterList(
+             assert(HasRequiresClause == (RequiresClause != nullptr)),
+             new (static_cast<void *>(&storage)) TemplateParameterList(C,
                  TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause))) {}
 };
 
@@ -1103,6 +1117,10 @@ class TemplateTypeParmDecl : public TypeDecl {
       DefaultArgStorage<TemplateTypeParmDecl, TypeSourceInfo *>;
   DefArgStorage DefaultArgument;
 
+  /// \brief The constraint expression introduced by this declaration (by means
+  /// of a 'constrained-parameter'.
+  Expr *ConstraintExpression = nullptr;
+
   TemplateTypeParmDecl(DeclContext *DC, SourceLocation KeyLoc,
                        SourceLocation IdLoc, IdentifierInfo *Id,
                        bool Typename)
@@ -1179,6 +1197,30 @@ public:
   /// \brief Returns whether this is a parameter pack.
   bool isParameterPack() const;
 
+  /// \brief Returns the constraint expression associated with this template
+  /// parameter (if any).
+  Expr *getConstraintExpression() const {
+    return ConstraintExpression;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setConstraintExpression(Expr *E) {
+    ConstraintExpression = E;
+  }
+
+  /// \brief Get the associated-constraints of this template parameter.
+  /// Currently, this will either be a vector of size 1 containing the
+  /// constrained-parameter constraint or an empty vector.
+  ///
+  /// Use this instead of getConstraintExpression for concepts APIs that
+  /// accept an ArrayRef of constraint expressions.
+  llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
+    if (ConstraintExpression)
+      return{ConstraintExpression};
+    return{};
+  }
+
   SourceRange getSourceRange() const override LLVM_READONLY;
 
   // Implement isa/cast/dyncast/etc.
@@ -1217,6 +1259,10 @@ class NonTypeTemplateParmDecl final
 
   /// \brief The number of types in an expanded parameter pack.
   unsigned NumExpandedTypes = 0;
+
+  /// \brief The constraint expression introduced by this declaration (by means
+  /// of a 'constrained-parameter'.
+  Expr *ConstraintExpression = nullptr;
 
   size_t numTrailingObjects(
       OverloadToken<std::pair<QualType, TypeSourceInfo *>>) const {
@@ -1364,6 +1410,30 @@ public:
     return TypesAndInfos[I].second;
   }
 
+  /// \brief Returns the constraint expression associated with this template
+  /// parameter (if any).
+  Expr *getConstraintExpression() const {
+    return ConstraintExpression;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setConstraintExpression(Expr *E) {
+    ConstraintExpression = E;
+  }
+
+  /// \brief Get the associated-constraints of this template parameter.
+  /// Currently, this will either be a vector of size 1 containing the
+  /// constrained-parameter constraint or an empty vector.
+  ///
+  /// Use this instead of getConstraintExpression for concepts APIs that
+  /// accept an ArrayRef of constraint expressions.
+  llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
+    if (ConstraintExpression)
+      return{ConstraintExpression};
+    return{};
+  }
+
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == NonTypeTemplateParm; }
@@ -1396,6 +1466,10 @@ class TemplateTemplateParmDecl final
 
   /// \brief The number of parameters in an expanded parameter pack.
   unsigned NumExpandedParams = 0;
+
+  /// \brief The constraint expression introduced by this declaration (by means
+  /// of a 'constrained-parameter'.
+  Expr *ConstraintExpression = nullptr;
 
   TemplateTemplateParmDecl(DeclContext *DC, SourceLocation L,
                            unsigned D, unsigned P, bool ParameterPack,
@@ -1523,6 +1597,30 @@ public:
 
   /// \brief Removes the default argument of this template parameter.
   void removeDefaultArgument() { DefaultArgument.clear(); }
+
+  /// \brief Returns the constraint expression associated with this template
+  /// parameter (if any).
+  Expr *getConstraintExpression() const {
+    return ConstraintExpression;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setConstraintExpression(Expr *E) {
+    ConstraintExpression = E;
+  }
+
+  /// \brief Get the associated-constraints of this template parameter.
+  /// Currently, this will either be a vector of size 1 containing the
+  /// constrained-parameter constraint or an empty vector.
+  ///
+  /// Use this instead of getConstraintExpression for concepts APIs that
+  /// accept an ArrayRef of constraint expressions.
+  llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
+    if (ConstraintExpression)
+      return{ConstraintExpression};
+    return{};
+  }
 
   SourceRange getSourceRange() const override LLVM_READONLY {
     SourceLocation End = getLocation();

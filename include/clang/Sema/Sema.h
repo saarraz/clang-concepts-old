@@ -5327,7 +5327,8 @@ public:
                                    NamedDecl *ScopeLookupResult,
                                    bool ErrorRecoveryLookup,
                                    bool *IsCorrectedToColon = nullptr,
-                                   bool OnlyNamespace = false);
+                                   bool OnlyNamespace = false,
+                                   bool SuppressDiagnostics = false);
 
   /// \brief The parser has parsed a nested-name-specifier 'identifier::'.
   ///
@@ -5353,6 +5354,8 @@ public:
   ///
   /// \param OnlyNamespace If true, only considers namespaces in lookup.
   ///
+  /// \param SuppressDiagnostic If true, suppress diagnostic on error.
+  ///
   /// \returns true if an error occurred, false otherwise.
   bool ActOnCXXNestedNameSpecifier(Scope *S,
                                    NestedNameSpecInfo &IdInfo,
@@ -5360,7 +5363,8 @@ public:
                                    CXXScopeSpec &SS,
                                    bool ErrorRecoveryLookup = false,
                                    bool *IsCorrectedToColon = nullptr,
-                                   bool OnlyNamespace = false);
+                                   bool OnlyNamespace = false,
+                                   bool SuppressDiagnostic = false);
 
   ExprResult ActOnDecltypeExpression(Expr *E);
 
@@ -5632,8 +5636,15 @@ public:
   /// \brief Check that the associated constraints of a template declaration
   /// match the associated constraints of an older declaration of which it is a
   /// redeclaration
+  ///
+  /// \return whether the constraints match. If false is returned, OldMismatch
+  /// and NewMismatch (if provided) will be set to the mismatched constraint
+  /// expressions in OldAC and NewAC, respectively, or nullptr if there is no
+  /// constraint expression to point to in the respective AC.
   bool CheckRedeclarationConstraintMatch(ArrayRef<const Expr *> OldAC,
-                                         ArrayRef<const Expr *> NewAC);
+                                         ArrayRef<const Expr *> NewAC,
+                                         const Expr **OldMismatch,
+                                         const Expr **NewMismatch);
 
   /// \brief Ensure that the given template arguments satisfy the constraints
   /// associated with the given template, emitting a diagnostic if they do not.
@@ -5662,8 +5673,8 @@ public:
   void DiagnoseUnsatisfiedIllFormedConstraint(SourceLocation DiagnosticLocation,
                                               StringRef Diagnostic);
 
-  void DiagnoseRedeclarationConstraintMismatch(const TemplateParameterList *Old,
-                                              const TemplateParameterList *New);
+  void DiagnoseRedeclarationConstraintMismatch(SourceLocation Old,
+                                               SourceLocation New);
 
   // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,
@@ -6131,7 +6142,8 @@ public:
                                   ParsedType ObjectType,
                                   bool EnteringContext,
                                   TemplateTy &Template,
-                                  bool &MemberOfUnknownSpecialization);
+                                  bool &MemberOfUnknownSpecialization,
+                                  NamedDecl **FoundDecl = nullptr);
 
   /// Determine whether a particular identifier might be the name in a C++1z
   /// deduction-guide declaration.
@@ -6170,11 +6182,17 @@ public:
                                              SourceLocation Loc);
   QualType CheckNonTypeTemplateParameterType(QualType T, SourceLocation Loc);
 
-  Decl *ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
+  Decl *ActOnNonTypeTemplateParameter(Scope *S,
+                                      const DeclSpec &DS,
+                                      SourceLocation StartLoc,
+                                      TypeSourceInfo *TInfo,
+                                      IdentifierInfo *ParamName,
+                                      SourceLocation ParamNameLoc,
+                                      bool IsParameterPack,
                                       unsigned Depth,
                                       unsigned Position,
                                       SourceLocation EqualLoc,
-                                      Expr *DefaultArg);
+                                      Expr *Default);
   Decl *ActOnTemplateTemplateParameter(Scope *S,
                                        SourceLocation TmpLoc,
                                        TemplateParameterList *Params,

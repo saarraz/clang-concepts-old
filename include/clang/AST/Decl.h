@@ -2167,9 +2167,9 @@ public:
     return TrailingRequiresClause;
   }
 
-  /// \brief Get the associated-constraints of this function declaration. This
-  /// will either be a vector of size 1 containing the trailing-requires-clause
-  /// or an empty vector.
+  /// \brief Get the associated-constraints of this function declaration.
+  /// Currently, this will either be a vector of size 1 containing the
+  /// trailing-requires-clause or an empty vector.
   ///
   /// Use this instead of getTrailingRequiresClause for concepts APIs that
   /// accept an ArrayRef of constraint expressions.

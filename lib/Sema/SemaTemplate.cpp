@@ -142,7 +142,8 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
                                       ParsedType ObjectTypePtr,
                                       bool EnteringContext,
                                       TemplateTy &TemplateResult,
-                                      bool &MemberOfUnknownSpecialization) {
+                                      bool &MemberOfUnknownSpecialization,
+                                      NamedDecl **FoundDecl) {
   assert(getLangOpts().CPlusPlus && "No template names in C!");
 
   DeclarationName TName;
@@ -194,6 +195,8 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
     // We'll do this lookup again later.
     R.suppressDiagnostics();
   } else {
+    if (FoundDecl)
+      *FoundDecl = R.getFoundDecl();
     TemplateDecl *TD = cast<TemplateDecl>((*R.begin())->getUnderlyingDecl());
 
     if (SS.isSet() && !SS.isInvalid()) {
@@ -904,15 +907,20 @@ QualType Sema::CheckNonTypeTemplateParameterType(QualType T,
   return QualType();
 }
 
-Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
+Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
+                                          const DeclSpec &DS,
+                                          SourceLocation StartLoc,
+                                          TypeSourceInfo *TInfo,
+                                          IdentifierInfo *ParamName,
+                                          SourceLocation ParamNameLoc,
+                                          bool IsParameterPack,
                                           unsigned Depth,
                                           unsigned Position,
                                           SourceLocation EqualLoc,
                                           Expr *Default) {
-  TypeSourceInfo *TInfo = GetTypeForDeclarator(D, S);
 
   // Check that we have valid decl-specifiers specified.
-  auto CheckValidDeclSpecifiers = [this, &D] {
+  auto CheckValidDeclSpecifiers = [this, &DS] {
     // C++ [temp.param]
     // p1 
     //   template-parameter:
@@ -924,7 +932,6 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
     // [dcl.typedef]p1: 
     //   The typedef specifier [...] shall not be used in the decl-specifier-seq
     //   of a parameter-declaration
-    const DeclSpec &DS = D.getDeclSpec();
     auto EmitDiag = [this](SourceLocation Loc) {
       Diag(Loc, diag::err_invalid_decl_specifier_in_nontype_parm)
           << FixItHint::CreateRemoval(Loc);
@@ -966,7 +973,7 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
   CheckValidDeclSpecifiers();
   
   if (TInfo->getType()->isUndeducedType()) {
-    Diag(D.getIdentifierLoc(),
+    Diag(ParamNameLoc,
          diag::warn_cxx14_compat_template_nontype_parm_auto_type)
       << QualType(TInfo->getType()->getContainedAutoType(), 0);
   }
@@ -975,18 +982,16 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
          "Non-type template parameter not in template parameter scope!");
   bool Invalid = false;
 
-  QualType T = CheckNonTypeTemplateParameterType(TInfo, D.getIdentifierLoc());
+  QualType T = CheckNonTypeTemplateParameterType(TInfo, ParamNameLoc);
   if (T.isNull()) {
     T = Context.IntTy; // Recover with an 'int' type.
     Invalid = true;
   }
 
-  IdentifierInfo *ParamName = D.getIdentifier();
-  bool IsParameterPack = D.hasEllipsis();
   NonTypeTemplateParmDecl *Param
     = NonTypeTemplateParmDecl::Create(Context, Context.getTranslationUnitDecl(),
-                                      D.getLocStart(),
-                                      D.getIdentifierLoc(),
+                                      StartLoc,
+                                      ParamNameLoc,
                                       Depth, Position, ParamName, T,
                                       IsParameterPack, TInfo);
   Param->setAccess(AS_public);
@@ -995,8 +1000,7 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
     Param->setInvalidDecl();
 
   if (ParamName) {
-    maybeDiagnoseTemplateParameterShadow(*this, S, D.getIdentifierLoc(),
-                                         ParamName);
+    maybeDiagnoseTemplateParameterShadow(*this, S, ParamNameLoc, ParamName);
 
     // Add the template parameter into the current scope.
     S->AddDecl(Param);
@@ -2004,14 +2008,17 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
   if (OldParams)
     OldParam = OldParams->begin();
 
+  const Expr *OldMismatch, *NewMismatch;
   if (OldParams &&
       !CheckRedeclarationConstraintMatch(OldParams->getAssociatedConstraints(),
-                                       NewParams->getAssociatedConstraints())) {
-    Diag(NewParams->getTemplateLoc(),
-         diag::err_template_different_associated_constraints);
-    Diag(OldParams->getTemplateLoc(),  diag::note_template_prev_declaration)
-        << /*declaration*/0;
-
+                                         NewParams->getAssociatedConstraints(),
+                                         &OldMismatch, &NewMismatch)){
+    DiagnoseRedeclarationConstraintMismatch(OldMismatch ?
+                                            OldMismatch->getLocStart() :
+                                            OldParams->getTemplateLoc(),
+                                            NewMismatch ?
+                                            NewMismatch->getLocStart() :
+                                            NewParams->getTemplateLoc());
     Invalid = true;
   }
 
@@ -6787,7 +6794,6 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                        bool Complain,
                                      Sema::TemplateParameterListEqualKind Kind,
                                        SourceLocation TemplateArgLoc) {
-  // TODO: Concepts: Check constrained-parameter constraints here.
   // Check the actual kind (type, non-type, template).
   if (Old->getKind() != New->getKind()) {
     if (Complain) {
@@ -6832,55 +6838,74 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
     return false;
   }
 
+  llvm::SmallVector<const Expr *, 1> OldAC, NewAC;
+
   // For non-type template parameters, check the type of the parameter.
   if (NonTypeTemplateParmDecl *OldNTTP
                                     = dyn_cast<NonTypeTemplateParmDecl>(Old)) {
     NonTypeTemplateParmDecl *NewNTTP = cast<NonTypeTemplateParmDecl>(New);
+    OldAC = OldNTTP->getAssociatedConstraints();
+    NewAC = NewNTTP->getAssociatedConstraints();
 
     // If we are matching a template template argument to a template
     // template parameter and one of the non-type template parameter types
     // is dependent, then we must wait until template instantiation time
     // to actually compare the arguments.
-    if (Kind == Sema::TPL_TemplateTemplateArgumentMatch &&
-        (OldNTTP->getType()->isDependentType() ||
-         NewNTTP->getType()->isDependentType()))
-      return true;
-
-    if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {
-      if (Complain) {
-        unsigned NextDiag = diag::err_template_nontype_parm_different_type;
-        if (TemplateArgLoc.isValid()) {
-          S.Diag(TemplateArgLoc,
-                 diag::err_template_arg_template_params_mismatch);
-          NextDiag = diag::note_template_nontype_parm_different_type;
+    if (Kind != Sema::TPL_TemplateTemplateArgumentMatch ||
+        (!OldNTTP->getType()->isDependentType() &&
+         !NewNTTP->getType()->isDependentType()))
+      if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {
+        if (Complain) {
+          unsigned NextDiag = diag::err_template_nontype_parm_different_type;
+          if (TemplateArgLoc.isValid()) {
+            S.Diag(TemplateArgLoc,
+                   diag::err_template_arg_template_params_mismatch);
+            NextDiag = diag::note_template_nontype_parm_different_type;
+          }
+          S.Diag(NewNTTP->getLocation(), NextDiag)
+            << NewNTTP->getType()
+            << (Kind != Sema::TPL_TemplateMatch);
+          S.Diag(OldNTTP->getLocation(),
+                 diag::note_template_nontype_parm_prev_declaration)
+            << OldNTTP->getType();
         }
-        S.Diag(NewNTTP->getLocation(), NextDiag)
-          << NewNTTP->getType()
-          << (Kind != Sema::TPL_TemplateMatch);
-        S.Diag(OldNTTP->getLocation(),
-               diag::note_template_nontype_parm_prev_declaration)
-          << OldNTTP->getType();
+
+        return false;
       }
-
-      return false;
-    }
-
-    return true;
   }
-
   // For template template parameters, check the template parameter types.
   // The template parameter lists of template template
   // parameters must agree.
-  if (TemplateTemplateParmDecl *OldTTP
+  else if (TemplateTemplateParmDecl *OldTTP
                                     = dyn_cast<TemplateTemplateParmDecl>(Old)) {
     TemplateTemplateParmDecl *NewTTP = cast<TemplateTemplateParmDecl>(New);
-    return S.TemplateParameterListsAreEqual(NewTTP->getTemplateParameters(),
-                                            OldTTP->getTemplateParameters(),
-                                            Complain,
+    OldAC = OldTTP->getAssociatedConstraints();
+    NewAC = NewTTP->getAssociatedConstraints();
+    if (!S.TemplateParameterListsAreEqual(NewTTP->getTemplateParameters(),
+                                          OldTTP->getTemplateParameters(),
+                                          Complain,
                                         (Kind == Sema::TPL_TemplateMatch
                                            ? Sema::TPL_TemplateTemplateParmMatch
                                            : Kind),
-                                            TemplateArgLoc);
+                                          TemplateArgLoc))
+      return false;
+  } else {
+    OldAC = cast<TemplateTypeParmDecl>(Old)->getAssociatedConstraints();
+    NewAC = cast<TemplateTypeParmDecl>(New)->getAssociatedConstraints();
+  }
+
+  const Expr *OldMismatch, *NewMismatch;
+  if (!S.CheckRedeclarationConstraintMatch(OldAC, NewAC,
+                                           Complain ? &OldMismatch : nullptr,
+                                           Complain ? &NewMismatch : nullptr)) {
+    if (Complain)
+      S.DiagnoseRedeclarationConstraintMismatch(OldMismatch ?
+                                                OldMismatch->getLocStart() :
+                                                Old->getLocStart(),
+                                                NewMismatch ?
+                                                NewMismatch->getLocStart() :
+                                                New->getLocStart());
+    return false;
   }
 
   return true;
@@ -6997,10 +7022,18 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
     return false;
   }
 
+  const Expr *OldMismatched, *NewMismatched;
   if (!CheckRedeclarationConstraintMatch(Old->getAssociatedConstraints(),
-                                         New->getAssociatedConstraints())) {
+                                         New->getAssociatedConstraints(),
+                                         Complain ? &OldMismatched : nullptr,
+                                         Complain ? &NewMismatched : nullptr)) {
     if (Complain)
-      DiagnoseRedeclarationConstraintMismatch(Old, New);
+      DiagnoseRedeclarationConstraintMismatch(OldMismatched ?
+                                              OldMismatched->getLocStart() :
+                                              Old->getTemplateLoc(),
+                                              NewMismatched ?
+                                              NewMismatched->getLocStart() :
+                                              New->getTemplateLoc());
     return false;
   }
 

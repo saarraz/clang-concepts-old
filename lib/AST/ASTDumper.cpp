@@ -1649,6 +1649,10 @@ void ASTDumper::VisitTemplateTypeParmDecl(const TemplateTypeParmDecl *D) {
   if (D->isParameterPack())
     OS << " ...";
   dumpName(D);
+  if (Expr *CE = D->getConstraintExpression()) {
+    OS << " requires ";
+    dumpStmt(CE);
+  }
   if (D->hasDefaultArgument())
     dumpTemplateArgument(D->getDefaultArgument());
 }
@@ -1659,6 +1663,10 @@ void ASTDumper::VisitNonTypeTemplateParmDecl(const NonTypeTemplateParmDecl *D) {
   if (D->isParameterPack())
     OS << " ...";
   dumpName(D);
+  if (Expr *CE = D->getConstraintExpression()) {
+    OS << " requires ";
+    dumpStmt(CE);
+  }
   if (D->hasDefaultArgument())
     dumpTemplateArgument(D->getDefaultArgument());
 }
@@ -1670,6 +1678,10 @@ void ASTDumper::VisitTemplateTemplateParmDecl(
     OS << " ...";
   dumpName(D);
   dumpTemplateParameters(D->getTemplateParameters());
+  if (Expr *CE = D->getConstraintExpression()) {
+    OS << " requires ";
+    dumpStmt(CE);
+  }
   if (D->hasDefaultArgument())
     dumpTemplateArgumentLoc(D->getDefaultArgument());
 }

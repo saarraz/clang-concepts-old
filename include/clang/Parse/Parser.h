@@ -1584,7 +1584,8 @@ private:
                                       bool *MayBePseudoDestructor = nullptr,
                                       bool IsTypename = false,
                                       IdentifierInfo **LastII = nullptr,
-                                      bool OnlyNamespace = false);
+                                      bool OnlyNamespace = false,
+                                      bool SuppressDiagnostic = false);
 
   //===--------------------------------------------------------------------===//
   // C++0x 5.1.2: Lambda expressions
@@ -2719,7 +2720,7 @@ public:
                           bool AllowDeductionGuide,
                           ParsedType ObjectType,
                           SourceLocation& TemplateKWLoc,
-                          UnqualifiedId &Result);
+                          UnqualifiedId &Result, bool SuppressDiag = false);
 
 private:
   //===--------------------------------------------------------------------===//
@@ -2752,6 +2753,13 @@ private:
   Decl *ParseTypeParameter(unsigned Depth, unsigned Position);
   Decl *ParseTemplateTemplateParameter(unsigned Depth, unsigned Position);
   Decl *ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position);
+  bool TryParseConstrainedParameter(ConceptDecl *&CD, NamedDecl *&FoundDecl,
+                                    SourceLocation &ConceptNameLoc,
+                                    TemplateArgumentListInfo &TALI);
+  Decl *ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
+                                      SourceLocation ParamStartLoc,
+                                          ConceptDecl *CD, NamedDecl *FoundDecl,
+                                          TemplateArgumentListInfo TALI);
   void DiagnoseMisplacedEllipsis(SourceLocation EllipsisLoc,
                                  SourceLocation CorrectLoc,
                                  bool AlreadyHasEllipsis,

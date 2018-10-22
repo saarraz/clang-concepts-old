@@ -43,35 +43,55 @@ using namespace clang;
 // TemplateParameterList Implementation
 //===----------------------------------------------------------------------===//
 
-TemplateParameterList::TemplateParameterList(SourceLocation TemplateLoc,
+
+TemplateParameterList::TemplateParameterList(const ASTContext& C,
+                                             SourceLocation TemplateLoc,
                                              SourceLocation LAngleLoc,
                                              ArrayRef<NamedDecl *> Params,
                                              SourceLocation RAngleLoc,
                                              Expr *RequiresClause)
     : TemplateLoc(TemplateLoc), LAngleLoc(LAngleLoc), RAngleLoc(RAngleLoc),
       NumParams(Params.size()), ContainsUnexpandedParameterPack(false),
-      HasRequiresClause(static_cast<bool>(RequiresClause)) {
+      HasRequiresClause(RequiresClause != nullptr),
+      HasConstrainedParameters(false) {
   for (unsigned Idx = 0; Idx < NumParams; ++Idx) {
     NamedDecl *P = Params[Idx];
     begin()[Idx] = P;
 
-    if (!P->isTemplateParameterPack()) {
-      if (NonTypeTemplateParmDecl *NTTP = dyn_cast<NonTypeTemplateParmDecl>(P))
-        if (NTTP->getType()->containsUnexpandedParameterPack())
+    bool IsPack = P->isTemplateParameterPack();
+    if (NonTypeTemplateParmDecl *NTTP =
+            dyn_cast<NonTypeTemplateParmDecl>(P)) {
+      if (!IsPack && NTTP->getType()->containsUnexpandedParameterPack())
+        ContainsUnexpandedParameterPack = true;
+      if (Expr *CE = NTTP->getConstraintExpression()) {
+        if (CE->containsUnexpandedParameterPack())
           ContainsUnexpandedParameterPack = true;
-
-      if (TemplateTemplateParmDecl *TTP = dyn_cast<TemplateTemplateParmDecl>(P))
-        if (TTP->getTemplateParameters()->containsUnexpandedParameterPack())
+        HasConstrainedParameters = true;
+      }
+    } else if (TemplateTemplateParmDecl *TTP =
+                   dyn_cast<TemplateTemplateParmDecl>(P)) {
+      if (!IsPack &&
+          TTP->getTemplateParameters()->containsUnexpandedParameterPack())
+        ContainsUnexpandedParameterPack = true;
+      if (Expr *CE = TTP->getConstraintExpression()) {
+        if (CE->containsUnexpandedParameterPack())
           ContainsUnexpandedParameterPack = true;
-
-      // FIXME: If a default argument contains an unexpanded parameter pack, the
-      // template parameter list does too.
+        HasConstrainedParameters = true;
+      }
+    } else if (Expr *CE =
+                   cast<TemplateTypeParmDecl>(P)->getConstraintExpression()) {
+      if (CE->containsUnexpandedParameterPack())
+        ContainsUnexpandedParameterPack = true;
+      HasConstrainedParameters = true;
     }
+    // FIXME: If a default argument contains an unexpanded parameter pack, the
+    // template parameter list does too.
   }
-  if (RequiresClause) {
-    *getTrailingObjects<Expr *>() = RequiresClause;
+
+  if (HasRequiresClause) {
     if (RequiresClause->containsUnexpandedParameterPack())
       ContainsUnexpandedParameterPack = true;
+    *getTrailingObjects<Expr *>() = RequiresClause;
   }
 }
 
@@ -83,7 +103,7 @@ TemplateParameterList::Create(const ASTContext &C, SourceLocation TemplateLoc,
   void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *, Expr *>(
                              Params.size(), RequiresClause ? 1u : 0u),
                          alignof(TemplateParameterList));
-  return new (Mem) TemplateParameterList(TemplateLoc, LAngleLoc, Params,
+  return new (Mem) TemplateParameterList(C, TemplateLoc, LAngleLoc, Params,
                                          RAngleLoc, RequiresClause);
 }
 
@@ -142,16 +162,28 @@ static void AdoptTemplateParameterList(TemplateParameterList *Params,
 
 llvm::SmallVector<const Expr *, 3>
 TemplateParameterList::getAssociatedConstraints() const {
-  // TODO: Concepts: Collect constrained parameter constraints.
   llvm::SmallVector<const Expr *, 3> Constraints;
   if (HasRequiresClause)
     Constraints.push_back(getRequiresClause());
+  if (HasConstrainedParameters) {
+    for (const NamedDecl *Param : *this)
+      if (const TemplateTypeParmDecl *TTP
+            = dyn_cast<TemplateTypeParmDecl>(Param)) {
+        if (const Expr *Constraint = TTP->getConstraintExpression())
+          Constraints.push_back(Constraint);
+      } else if (const NonTypeTemplateParmDecl *NTTP
+                 = dyn_cast<NonTypeTemplateParmDecl>(Param)) {
+        if (const Expr *Constraint = NTTP->getConstraintExpression())
+          Constraints.push_back(Constraint);
+      } else if (const Expr *Constraint = cast<TemplateTemplateParmDecl>(Param)
+                                              ->getConstraintExpression())
+        Constraints.push_back(Constraint);
+  }
   return Constraints;
 }
 
 bool TemplateParameterList::hasAssociatedConstraints() const {
-  // TODO: Concepts: Regard constrained parameter constraints.
-  return HasRequiresClause;
+  return HasRequiresClause || HasConstrainedParameters;
 }
 
 namespace clang {
