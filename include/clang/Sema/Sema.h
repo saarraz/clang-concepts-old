@@ -5590,8 +5590,8 @@ public:
   /// \brief Returns whether the given declaration's associated constraints are
   /// more constrained than another declaration's according to the partial
   /// ordering of constraints.
-  bool IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
-                         NamedDecl *D2, ArrayRef<const Expr *> AC2);
+  bool IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
+                              NamedDecl *D2, ArrayRef<const Expr *> AC2);
 
   /// \brief Check whether the given list of constraint expressions are
   /// satisfied (as if in a 'conjunction') given template arguments.
@@ -7191,7 +7191,7 @@ public:
                                     sema::TemplateDeductionInfo &Info);
 
   bool isTemplateTemplateParameterAtLeastAsSpecializedAs(
-      TemplateParameterList *P, TemplateDecl *AArg, SourceLocation Loc);
+      TemplateParameterList *PParam, TemplateDecl *AArg, SourceLocation Loc);
 
 
   /// \brief Given a template parameter list containing a single type parameter,

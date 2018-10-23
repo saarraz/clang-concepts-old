@@ -4855,17 +4855,15 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
                                  unsigned NumCallArguments2) {
 
   auto JudgeByConstraints = [&] () -> FunctionTemplateDecl * {
-    bool MoreConstrained1 = IsMoreConstrained(FT1,
-                                              FT1->getAssociatedConstraints(),
-                                              FT2,
-                                              FT2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(FT2,
-                                              FT2->getAssociatedConstraints(),
-                                              FT1,
-                                              FT1->getAssociatedConstraints());
-    if (MoreConstrained1 == MoreConstrained2)
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(FT1,
+                                     FT1->getAssociatedConstraints(), FT2,
+                                     FT2->getAssociatedConstraints());
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(FT2,
+                                     FT2->getAssociatedConstraints(), FT1,
+                                     FT1->getAssociatedConstraints());
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2)
       return nullptr;
-    return MoreConstrained1 ? FT1 : FT2;
+    return AtLeastAsConstrained1 ? FT1 : FT2;
   };
 
   bool Better1 = isAtLeastAsSpecializedAs(*this, Loc, FT1, FT2, TPOC,
@@ -5024,17 +5022,15 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
   if (Better1 == Better2) {
-    bool MoreConstrained1 = IsMoreConstrained(PS1,
-                                              PS1->getAssociatedConstraints(),
-                                              PS2,
-                                              PS2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(PS2,
-                                              PS2->getAssociatedConstraints(),
-                                              PS1,
-                                              PS1->getAssociatedConstraints());
-    if (MoreConstrained1 == MoreConstrained2)
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(PS1,
+                                     PS1->getAssociatedConstraints(), PS2,
+                                     PS2->getAssociatedConstraints());
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(PS2,
+                                     PS2->getAssociatedConstraints(), PS1,
+                                     PS1->getAssociatedConstraints());
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2)
       return nullptr;
-    return MoreConstrained1 ? PS1 : PS2;
+    return AtLeastAsConstrained1 ? PS1 : PS2;
   }
 
   return Better1 ? PS1 : PS2;
@@ -5046,17 +5042,17 @@ bool Sema::isMoreSpecializedThanPrimary(
   QualType PrimaryT = Primary->getInjectedClassNameSpecialization();
   QualType PartialT = Spec->getInjectedSpecializationType();
   auto JudgeByConstraints = [&] {
-    bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
-                                            Primary->getAssociatedConstraints(),
-                                            Spec,
-                                            Spec->getAssociatedConstraints());
-    bool MoreConstrainedSpec = IsMoreConstrained(Spec,
-                                           Spec->getAssociatedConstraints(),
-                                           Primary,
-                                           Primary->getAssociatedConstraints());
-    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+    bool AtLeastAsConstrainedPrimary = IsAtLeastAsConstrained(Primary,
+                                           Primary->getAssociatedConstraints(),
+                                           Spec,
+                                           Spec->getAssociatedConstraints());
+    bool AtLeastAsConstrainedSpec = IsAtLeastAsConstrained(Spec,
+                                        Spec->getAssociatedConstraints(),
+                                        Primary,
+                                        Primary->getAssociatedConstraints());
+    if (AtLeastAsConstrainedPrimary == AtLeastAsConstrainedSpec)
       return false;
-    return MoreConstrainedSpec;
+    return AtLeastAsConstrainedSpec;
   };
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
     return JudgeByConstraints();
@@ -5088,18 +5084,16 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
   if (Better1 == Better2) {
-    bool MoreConstrained1 = IsMoreConstrained(PS1,
-                                              PS1->getAssociatedConstraints(),
-                                              PS2,
-                                              PS2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(PS2,
-                                              PS2->getAssociatedConstraints(),
-                                              PS1,
-                                              PS1->getAssociatedConstraints());
-    if (MoreConstrained1 == MoreConstrained2) {
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(PS1,
+                                     PS1->getAssociatedConstraints(), PS2,
+                                     PS2->getAssociatedConstraints());
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(PS2,
+                                     PS2->getAssociatedConstraints(), PS1,
+                                     PS1->getAssociatedConstraints());
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2) {
       return nullptr;
     }
-    return MoreConstrained1 ? PS1 : PS2;
+    return AtLeastAsConstrained1 ? PS1 : PS2;
   }
 
   return Better1 ? PS1 : PS2;
@@ -5122,17 +5116,17 @@ bool Sema::isMoreSpecializedThanPrimary(
       CanonTemplate, Spec->getTemplateArgs().asArray());
 
   auto JudgeByConstraints = [&] {
-      bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
+      bool AtLeastAsConstrainedPrimary = IsAtLeastAsConstrained(Primary,
                                             Primary->getAssociatedConstraints(),
                                             Spec,
                                             Spec->getAssociatedConstraints());
-      bool MoreConstrainedSpec = IsMoreConstrained(Spec,
-                                           Spec->getAssociatedConstraints(),
-                                           Primary,
-                                           Primary->getAssociatedConstraints());
-      if (MoreConstrainedPrimary == MoreConstrainedSpec)
+      bool AtLeastAsConstrainedSpec = IsAtLeastAsConstrained(Spec,
+                                          Spec->getAssociatedConstraints(),
+                                          Primary,
+                                          Primary->getAssociatedConstraints());
+      if (AtLeastAsConstrainedPrimary == AtLeastAsConstrainedSpec)
         return false;
-      return MoreConstrainedSpec;
+      return AtLeastAsConstrainedSpec;
   };
 
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
@@ -5175,7 +5169,8 @@ bool Sema::isTemplateTemplateParameterAtLeastAsSpecializedAs(
     SFINAETrap Trap(*this);
 
     Context.getInjectedTemplateArgs(P, PArgs);
-    TemplateArgumentListInfo PArgList(P->getLAngleLoc(), P->getRAngleLoc());
+    TemplateArgumentListInfo PArgList(P->getLAngleLoc(),
+                                      P->getRAngleLoc());
     for (unsigned I = 0, N = P->size(); I != N; ++I) {
       // Unwrap packs that getInjectedTemplateArgs wrapped around pack
       // expansions, to form an "as written" argument list.

@@ -1641,6 +1641,11 @@ private:
           /*Depth*/0, Depth1IndexAdjustment + TTP->getIndex(),
           TTP->getIdentifier(), TTP->wasDeclaredWithTypename(),
           TTP->isParameterPack());
+      if (Expr *CE = TTP->getConstraintExpression()) {
+        ExprResult InstantiatedConstraintExpr = SemaRef.SubstExpr(CE, Args);
+        if (InstantiatedConstraintExpr.isUsable())
+          NewTTP->setConstraintExpression(InstantiatedConstraintExpr.get());
+      }
       if (TTP->hasDefaultArgument()) {
         TypeSourceInfo *InstantiatedDefaultArg =
             SemaRef.SubstType(TTP->getDefaultArgumentInfo(), Args,
@@ -6583,19 +6588,39 @@ bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
   // C++1z [temp.arg.template]p3: (DR 150)
   //   A template-argument matches a template template-parameter P when P
   //   is at least as specialized as the template-argument A.
-  if (getLangOpts().RelaxedTemplateTemplateArgs) {
+  if (getLangOpts().RelaxedTemplateTemplateArgs || getLangOpts().ConceptsTS) {
     // Quick check for the common case:
     //   If P contains a parameter pack, then A [...] matches P if each of A's
     //   template parameters matches the corresponding template parameter in
     //   the template-parameter-list of P.
     if (TemplateParameterListsAreEqual(
             Template->getTemplateParameters(), Params, false,
-            TPL_TemplateTemplateArgumentMatch, Arg.getLocation()))
+            TPL_TemplateTemplateArgumentMatch, Arg.getLocation()) &&
+        // If the argument has no associated constraints, then the parameter is
+        // definitely at least as specialized as the argument.
+        // Otherwise - we need a more thorough check.
+        Template->getAssociatedConstraints() == nullptr)
       return false;
 
     if (isTemplateTemplateParameterAtLeastAsSpecializedAs(Params, Template,
-                                                          Arg.getLocation()))
+                                                          Arg.getLocation())) {
+      // C++2a[temp.func.order]p2
+      //   [...] If both deductions succeed, the partial ordering selects the
+      //   more constrained template as described by the rules in
+      //   [temp.constr.order].
+      if (!IsAtLeastAsConstrained(Param, Params->getAssociatedConstraints(),
+                                  Template,
+                                  Template->getAssociatedConstraints())) {
+        Diag(Arg.getLocation(),
+             diag::err_template_template_parameter_not_at_least_as_constrained)
+            << Template << Param << Arg.getSourceRange();
+        Diag(Param->getLocation(), diag::note_entity_declared_at) << Param;
+        Diag(Template->getLocation(), diag::note_entity_declared_at)
+            << Template;
+        return true;
+      }
       return false;
+    }
     // FIXME: Produce better diagnostics for deduction failures.
   }
 
@@ -6895,7 +6920,8 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
   }
 
   const Expr *OldMismatch, *NewMismatch;
-  if (!S.CheckRedeclarationConstraintMatch(OldAC, NewAC,
+  if (Kind != Sema::TPL_TemplateTemplateArgumentMatch &&
+      !S.CheckRedeclarationConstraintMatch(OldAC, NewAC,
                                            Complain ? &OldMismatch : nullptr,
                                            Complain ? &NewMismatch : nullptr)) {
     if (Complain)
@@ -7023,7 +7049,8 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
   }
 
   const Expr *OldMismatched, *NewMismatched;
-  if (!CheckRedeclarationConstraintMatch(Old->getAssociatedConstraints(),
+  if (Kind != TPL_TemplateTemplateArgumentMatch &&
+      !CheckRedeclarationConstraintMatch(Old->getAssociatedConstraints(),
                                          New->getAssociatedConstraints(),
                                          Complain ? &OldMismatched : nullptr,
                                          Complain ? &NewMismatched : nullptr)) {

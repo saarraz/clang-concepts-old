@@ -883,8 +883,8 @@ static bool subsumes(Sema &S, ArrayRef<const Expr *> P,
   return true;
 }
 
-bool Sema::IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
-                             NamedDecl *D2, ArrayRef<const Expr *> AC2) {
+bool Sema::IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
+                                  NamedDecl *D2, ArrayRef<const Expr *> AC2) {
   if (AC1.empty())
     return AC2.empty();
   if (AC2.empty())

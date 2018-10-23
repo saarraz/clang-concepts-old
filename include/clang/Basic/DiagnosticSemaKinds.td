@@ -2478,6 +2478,9 @@ def note_nested_requirement_unknown_substitution_error : Note<
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;
+def err_template_template_parameter_not_at_least_as_constrained : Error<
+  "template template argument %0 must not be more constrained than template "
+  "template parameter %1">;
 
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<
