@@ -3105,7 +3105,8 @@ ExprResult Parser::ParseRequiresExpression() {
       //             cv-qualifier-seq[opt] abstract-declarator[opt]
       BalancedDelimiterTracker ExprBraces(*this, tok::l_brace);
       ExprBraces.consumeOpen();
-      ExprResult Expression = ParseExpression();
+      ExprResult Expression =
+          Actions.CorrectDelayedTyposInExpr(ParseExpression());
       if (Expression.isInvalid() && !Expression.isUsable()) {
         ExprBraces.skipToEnd();
         Braces.skipToEnd();
@@ -3222,7 +3223,8 @@ ExprResult Parser::ParseRequiresExpression() {
       //     nested-requirement:
       //         'requires' constraint-expression ';'
       ConsumeToken();
-      ExprResult ConstraintExpr = ParseConstraintExpression();
+      ExprResult ConstraintExpr =
+          Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
       if (ConstraintExpr.isInvalid() || !ConstraintExpr.isUsable()) {
         Braces.skipToEnd();
         Actions.ActOnExitRequiresExpr();
@@ -3243,7 +3245,8 @@ ExprResult Parser::ParseRequiresExpression() {
       //     simple-requirement:
       //         expression ';'
       SourceLocation StartLoc = Tok.getLocation();
-      ExprResult Expression = ParseExpression();
+      ExprResult Expression =
+          Actions.CorrectDelayedTyposInExpr(ParseExpression());
       if (Expression.isInvalid() || !Expression.isUsable()) {
         Braces.skipToEnd();
         Actions.ActOnExitRequiresExpr();
