@@ -573,17 +573,19 @@ Decl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
   // At this point we're either facing a constrained-parameter or a typename for
   // a non type template parameter.
   SourceLocation ParamStartLoc = Tok.getLocation();
+  CXXScopeSpec SS;
   ConceptDecl *CD;
   NamedDecl *FoundDecl;
   SourceLocation ConceptNameLoc;
   TemplateArgumentListInfo TALI;
-  if (TryParseConstrainedParameter(CD, FoundDecl, ConceptNameLoc, TALI)) {
+  if (TryParseConstrainedParameter(SS, CD, FoundDecl, ConceptNameLoc, TALI)) {
     if (!CD)
       // This is definitely a constrained parameter but there's been an error
       // parsing it.
       return nullptr;
     return ParseConstrainedTemplateParameter(Depth, Position, ParamStartLoc,
-                                             CD, FoundDecl, std::move(TALI));
+                                             SS, CD, FoundDecl,
+                                             std::move(TALI));
   }
 
   // If it's none of the above, then it must be a parameter declaration.
@@ -600,12 +602,11 @@ Decl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
 /// \returns true if there is a constrained-parameter at the current location,
 /// false otherwise. If an error occured while parsing the
 /// constrained-parameter, the returned CD will be nullptr.
-bool Parser::TryParseConstrainedParameter(ConceptDecl *&CD,
+bool Parser::TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
                                           NamedDecl *&FoundDecl,
                                           SourceLocation &ConceptNameLoc,
                                           TemplateArgumentListInfo &TALI) {
   TentativeParsingAction TPA(*this);
-  CXXScopeSpec SS;
 
   if (ParseOptionalCXXScopeSpecifier(SS, ParsedType(),
                                      /*EnteringContext=*/false,
@@ -914,6 +915,7 @@ Parser::ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position) {
 Decl *
 Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
                                           SourceLocation ParamStartLoc,
+                                          const CXXScopeSpec &SS,
                                           ConceptDecl *CD, NamedDecl *FoundDecl,
                                           TemplateArgumentListInfo TALI) {
   // Grab the ellipsis (if given).
@@ -1074,7 +1076,6 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
   // We now have an actual template parameter declared - form the constraint
   // expression and attach it to the declared parameter.
 
-  CXXScopeSpec SS;
   ExprResult Result = Actions.CheckConceptTemplateId(SS,
       /*TemplateKWLoc=*/SourceLocation(), ParamStartLoc, FoundDecl, CD, &TALI);
   if (Result.isInvalid() || !Result.isUsable())

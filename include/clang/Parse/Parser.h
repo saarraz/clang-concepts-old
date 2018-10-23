@@ -2758,11 +2758,13 @@ private:
   Decl *ParseTypeParameter(unsigned Depth, unsigned Position);
   Decl *ParseTemplateTemplateParameter(unsigned Depth, unsigned Position);
   Decl *ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position);
-  bool TryParseConstrainedParameter(ConceptDecl *&CD, NamedDecl *&FoundDecl,
+  bool TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
+                                    NamedDecl *&FoundDecl,
                                     SourceLocation &ConceptNameLoc,
                                     TemplateArgumentListInfo &TALI);
   Decl *ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
-                                      SourceLocation ParamStartLoc,
+                                          SourceLocation ParamStartLoc,
+                                          const CXXScopeSpec &SS,
                                           ConceptDecl *CD, NamedDecl *FoundDecl,
                                           TemplateArgumentListInfo TALI);
   void DiagnoseMisplacedEllipsis(SourceLocation EllipsisLoc,

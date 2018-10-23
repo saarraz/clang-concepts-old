@@ -3159,10 +3159,13 @@ ExprResult Parser::ParseRequiresExpression() {
               break;
         };
         ParseCV();
+        CXXScopeSpec SS;
         ConceptDecl *CD;
+        NamedDecl *FoundDecl;
         SourceLocation ConceptNameLoc;
         TemplateArgumentListInfo TALI;
-        if (!TryParseConstrainedParameter(CD, ConceptNameLoc, TALI)) {
+        if (!TryParseConstrainedParameter(SS, CD, FoundDecl, ConceptNameLoc,
+                                          TALI)) {
           TPA.Revert();
           return false;
         }
