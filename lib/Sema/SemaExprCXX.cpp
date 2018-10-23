@@ -7685,3 +7685,240 @@ Sema::CheckMicrosoftIfExistsSymbol(Scope *S, SourceLocation KeywordLoc,
 
   return CheckMicrosoftIfExistsSymbol(S, SS, TargetNameInfo);
 }
+
+Requirement *Sema::ActOnSimpleRequirement(Expr *E) {
+  return new (Context) ExprRequirement(*this, E, /*IsSimple=*/true,
+             /*NoexceptLoc=*/SourceLocation());
+}
+
+Requirement *Sema::ActOnTypeRequirement(SourceLocation TypenameKWLoc,
+                                        CXXScopeSpec TypeScope,
+                                        UnqualifiedId &TypeName) {
+  llvm::Optional<ASTTemplateArgumentListInfo> TALI;
+  assert((TypeName.getKind() == UnqualifiedId::IK_TemplateId ||
+          TypeName.getKind() == UnqualifiedId::IK_Identifier) &&
+         "Only template-id or identifier allowed in type requirement.");
+
+  TemplateArgumentListInfo TemplateArgsBuffer;
+
+  // Decompose the UnqualifiedId into the following data.
+  DeclarationNameInfo NameInfo;
+  const TemplateArgumentListInfo *TemplateArgs;
+  DecomposeUnqualifiedId(TypeName, TemplateArgsBuffer, NameInfo, TemplateArgs);
+
+  QualType T;
+  if (TemplateArgs) {
+    llvm::Optional<TemplateName> TempName;
+    if (TypeScope.isSet()) {
+      UnqualifiedId TemplateId;
+      TemplateId.setIdentifier(NameInfo.getName().getAsIdentifierInfo(),
+                               NameInfo.getBeginLoc());
+      TemplateTy TemplateType;
+      auto TNK = ActOnDependentTemplateName(CurScope, TypeScope,
+                                            SourceLocation(),
+                                            TemplateId, ParsedType(),
+                                            /*EnteringContext=*/false,
+                                            TemplateType);
+      if (TNK != TNK_Type_template && TNK != TNK_Dependent_template_name) {
+        std::string Buf;
+        llvm::raw_string_ostream OS(Buf);
+        TemplateType.get().print(OS, getPrintingPolicy());
+        Diag(NameInfo.getBeginLoc(),
+             diag::err_type_requirement_non_type_template) << OS.str()
+            << (int)getTemplateNameKindForDiagnostics(TemplateType.get())
+            << NameInfo.getSourceRange();
+        return nullptr;
+      }
+      TempName.emplace(TemplateType.get());
+    } else {
+      LookupResult R(*this, NameInfo, LookupOrdinaryName);
+      bool MemberOfUnknownSpecialization = false;
+      LookupTemplateName(R, CurScope, TypeScope, /*ObjectType=*/QualType(),
+                         /*EnteringContext=*/false,
+                         MemberOfUnknownSpecialization);
+      assert(!MemberOfUnknownSpecialization
+             && "How did this happen without a type scope");
+
+      if (!R.isSingleResult())
+        return nullptr;
+      TemplateDecl *Result = R.getAsSingle<TemplateDecl>();
+      if (TemplateDecl *TypeTemplate = getAsTypeTemplateDecl(Result))
+        TempName.emplace(TypeTemplate);
+      else {
+        std::string Buf;
+        llvm::raw_string_ostream OS(Buf);
+        Result->printQualifiedName(OS);
+        Diag(NameInfo.getBeginLoc(),
+             diag::err_type_requirement_non_type_template) << OS.str()
+            << (int)getTemplateNameKindForDiagnostics(TemplateName(Result))
+            << NameInfo.getSourceRange();
+        return nullptr;
+      }
+    }
+    T = CheckTemplateIdType(TempName.getValue(), NameInfo.getBeginLoc(),
+                            TemplateArgsBuffer);
+  } else if (TypeScope.isSet() && isDependentScopeSpecifier(TypeScope))
+    T = ActOnTypenameType(CurScope, SourceLocation(), TypeScope,
+                          *NameInfo.getName().getAsIdentifierInfo(),
+                          NameInfo.getBeginLoc()).get().get();
+  else {
+    ParsedType Type = getTypeName(*NameInfo.getName().getAsIdentifierInfo(),
+                                  NameInfo.getBeginLoc(), CurScope,
+                                  TypeScope.isSet() ? &TypeScope : nullptr,
+                                  /*isClassName=*/false,
+                                  /*HasTrailingDot=*/false,
+                                  /*ObjectType=*/nullptr,
+                                  /*IsCtorOrDtorName=*/false,
+                                  /*WantNontrivialTypeSourceInfo=*/true,
+                                  /*IsClassTemplateDeductionContext=*/false);
+    if (!Type) {
+      std::string Buf;
+      llvm::raw_string_ostream OS(Buf);
+      if (TypeScope.isSet())
+        TypeScope.getScopeRep()->print(OS, getPrintingPolicy());
+      OS << NameInfo.getName().getAsString();
+      Diag(TypenameKWLoc, diag::err_type_requirement_no_such_type) << OS.str();
+      return nullptr;
+    }
+    T = Type.get();
+  }
+
+  if (T.isNull())
+    return nullptr;
+
+  auto *LIT = dyn_cast<LocInfoType>(T.getTypePtr());
+  return new (Context) TypeRequirement(
+      LIT ? LIT->getTypeSourceInfo() :
+      Context.getTrivialTypeSourceInfo(T, TypenameKWLoc));
+}
+
+Requirement *Sema::ActOnCompoundRequirement(Expr *E,
+                                            SourceLocation NoexceptLoc) {
+  return new (Context) ExprRequirement(*this, E, /*IsSimple=*/false,
+                                       NoexceptLoc);
+}
+
+Requirement *Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
+                                            TypeSourceInfo *ExpectedType) {
+  return new (Context) ExprRequirement(*this, E, /*IsSimple=*/false,
+             NoexceptLoc, ExprRequirement::ReturnTypeRequirement(Context,
+                                                                 ExpectedType));
+}
+
+Requirement *
+Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
+                               SourceLocation ConceptNameLoc,
+                               const CXXScopeSpec &SS, NamedDecl *FoundDecl,
+                               ConceptDecl *NamedConcept,
+                               TemplateArgumentListInfo TemplateArgs,
+                               Declarator &DeducedDeclarator, unsigned Depth) {
+  // C++2a [expr.prim.req.compound] p1.3.3
+  //   [..] the expression is deduced against an invented function template
+  //   F [...] F is a void function template with a single type template
+  //   parameter T declared with the constrained-parameter. Form a new
+  //   cv-qualifier-seq cv by taking the union of const and volatile specifiers
+  //   around the constrained-parameter. F has a single parameter whose
+  //   type-specifier is cv T followed by the abstract-declarator. [...]
+  //
+  // The cv part is done in the calling function - we get the concept with
+  // arguments and the abstract declarator with the correct CV qualification and
+  // have to synthesize T and the single parameter of F.
+  auto &II = Context.Idents.get("expr-type");
+  auto *TParam = TemplateTypeParmDecl::Create(Context, CurContext,
+                                              SourceLocation(),
+                                              SourceLocation(), Depth,
+                                              /*Index=*/0, &II,
+                                              /*Typename=*/true,
+                                              /*ParameterPack=*/false);
+  QualType TParamType(TParam->getTypeForDecl(), 0);
+
+  TemplateArgs.prependArgument(
+      TemplateArgumentLoc(TemplateArgument(TParamType),
+                          TemplateArgumentLocInfo(
+                              Context.getTrivialTypeSourceInfo(TParamType,
+                                  ConceptNameLoc))));
+  ExprResult CSE = CheckConceptTemplateId(SS,
+                                          /*TemplateKWLoc=*/SourceLocation(),
+                                          ConceptNameLoc, FoundDecl,
+                                          NamedConcept, &TemplateArgs);
+  if (CSE.isInvalid())
+    return nullptr;
+
+  auto *TPL = TemplateParameterList::Create(Context, SourceLocation(),
+                                            SourceLocation(),
+                                            ArrayRef<NamedDecl *>(TParam),
+                                            SourceLocation(),
+                                            /*RequiresClause=*/CSE.get());
+
+  const char *PrevSpec;
+  unsigned DiagID;
+  ParsedType TParamParsedType = ParsedType::make(TParamType);
+  const_cast<DeclSpec &>(DeducedDeclarator.getDeclSpec())
+      .SetTypeSpecType(DeclSpec::TST_typename, ConceptNameLoc, PrevSpec,
+                       DiagID, TParamParsedType, Context.getPrintingPolicy());
+
+  return new (Context) ExprRequirement(*this, E, /*IsSimple=*/false,
+      NoexceptLoc,
+      ExprRequirement::ReturnTypeRequirement(Context, TPL,
+          GetTypeForDeclarator(DeducedDeclarator, CurScope)));
+}
+
+Requirement *Sema::ActOnNestedRequirement(Expr *Constraint) {
+  return new (Context) NestedRequirement(*this, Constraint);
+}
+
+RequiresExprBodyDecl *
+Sema::ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,
+                             ArrayRef<ParmVarDecl *> LocalParameters,
+                             Scope *LocalParametersScope) {
+  assert(LocalParametersScope);
+
+  RequiresExprBodyDecl *Body = RequiresExprBodyDecl::Create(Context, CurContext,
+                                                            RequiresKWLoc);
+
+  // Maintain an efficient lookup of params we have seen so far.
+  llvm::SmallSet<const IdentifierInfo*, 16> ParamsSoFar;
+
+  PushDeclContext(LocalParametersScope, Body);
+
+  for (ParmVarDecl *Param : LocalParameters) {
+    if (Param->hasDefaultArg())
+      // C++2a [expr.prim.req] p4
+      //     [...] A local parameter of a requires-expression shall not have a
+      //     default argument. [...]
+      Diag(Param->getDefaultArgRange().getBegin(),
+           diag::err_requires_expr_local_parameter_default_argument);
+    // Ignore default argument and move on
+
+    Param->setDeclContext(Body);
+    // If this has an identifier, add it to the scope stack.
+    if (Param->getIdentifier()) {
+      CheckShadow(LocalParametersScope, Param);
+
+      PushOnScopeChains(Param, LocalParametersScope);
+
+      // Verify that the argument identifier has not already been mentioned.
+      if (!ParamsSoFar.insert(Param->getIdentifier()).second)
+        Diag(Param->getLocStart(), diag::err_param_redefinition)
+            << Param->getIdentifier();
+    }
+  }
+  return Body;
+}
+
+void Sema::ActOnExitRequiresExpr() {
+  assert(CurContext && "DeclContext imbalance!");
+  CurContext = CurContext->getLexicalParent();
+  assert(CurContext && "Popped translation unit!");
+}
+
+ExprResult
+Sema::CreateRequiresExpr(SourceLocation RequiresKWLoc,
+                         RequiresExprBodyDecl *Body,
+                         ArrayRef<ParmVarDecl *> LocalParameters,
+                         ArrayRef<Requirement *> Requirements,
+                         SourceLocation ClosingBraceLoc) {
+  return new (Context) RequiresExpr(Context, RequiresKWLoc, Body,
+                                    LocalParameters, Requirements,
+                                    ClosingBraceLoc);
+}

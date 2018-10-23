@@ -1641,6 +1641,8 @@ Sema::BuildDeclRefExpr(ValueDecl *D, QualType Ty, ExprValueKind VK,
   return BuildDeclRefExpr(D, Ty, VK, NameInfo, SS);
 }
 
+static bool isEvaluatableContext(Sema &SemaRef);
+
 /// BuildDeclRefExpr - Build an expression that references a
 /// declaration that does not require a closure capture.
 ExprResult
@@ -1651,6 +1653,21 @@ Sema::BuildDeclRefExpr(ValueDecl *D, QualType Ty, ExprValueKind VK,
   bool RefersToCapturedVariable =
       isa<VarDecl>(D) &&
       NeedToCaptureVariable(cast<VarDecl>(D), NameInfo.getLoc());
+
+  if (isa<ParmVarDecl>(D) && isa<RequiresExprBodyDecl>(D->getDeclContext()) &&
+      isEvaluatableContext(*this)) {
+    // C++ [expr.prim.req.nested] p3
+    //   A local parameter shall only appear as an unevaluated operand
+    //   (Clause 8) within the constraint-expression.
+    //
+    // We take the liberty of disallowing these parameters in any evaluated
+    // context.
+    Diag(NameInfo.getLocStart(),
+         diag::err_requires_expr_parameter_referenced_in_evaluated_context)
+        << D;
+    Diag(D->getLocation(), diag::note_entity_declared_at) << D;
+    return ExprError();
+  }
 
   DeclRefExpr *E;
   if (isa<VarTemplateSpecializationDecl>(D)) {

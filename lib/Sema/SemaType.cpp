@@ -2789,6 +2789,9 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     case Declarator::PrototypeContext:
       Error = 0;  
       break;
+    case Declarator::RequiresExprContext:
+      Error = 21;
+      break;
     case Declarator::LambdaExprParameterContext:
       // In C++14, generic lambdas allow 'auto' in their parameters.
       if (!SemaRef.getLangOpts().CPlusPlus14 ||
@@ -2992,6 +2995,7 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       break;
     case Declarator::PrototypeContext:
     case Declarator::LambdaExprParameterContext:
+    case Declarator::RequiresExprContext:
     case Declarator::ObjCParameterContext:
     case Declarator::ObjCResultContext:
     case Declarator::KNRTypeListContext:
@@ -4008,6 +4012,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     case Declarator::TemplateTypeArgContext:
     case Declarator::TypeNameContext:
     case Declarator::FunctionalCastContext:
+    case Declarator::RequiresExprContext:
       // Don't infer in these contexts.
       break;
     }
@@ -4892,6 +4897,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     switch (D.getContext()) {
     case Declarator::PrototypeContext:
     case Declarator::LambdaExprParameterContext:
+    case Declarator::RequiresExprContext:
       // C++0x [dcl.fct]p13:
       //   [...] When it is part of a parameter-declaration-clause, the
       //   parameter pack is a function parameter pack (14.5.3). The type T

@@ -155,6 +155,7 @@ def CoyieldExpr : DStmt<CoroutineSuspendExpr>;
 
 // C++2a Concepts expressions
 def ConceptSpecializationExpr : DStmt<Expr>;
+def RequiresExpr : DStmt<Expr>;
 
 // Obj-C Expressions.
 def ObjCStringLiteral : DStmt<Expr>;

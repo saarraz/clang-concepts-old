@@ -669,6 +669,30 @@ def err_expected_template_parameter : Error<"expected template parameter">;
 def err_constrained_parameter_missing_arguments : Error<
   "concept %0 requires more than 1 template argument; provide the remaining "
   "arguments explicitly to use it here">;
+def note_ill_formed_requires_expression_outside_template : Note<
+  "requires expression outside a template declaration may not contain invalid "
+  "types or expressions">;
+def err_empty_requires_expr : Error<
+  "a requires expression must contain at least one requirement">;
+def err_requires_expr_parameter_list_ellipsis : Error<
+  "varargs not allowed in requires expression">;
+def err_requires_expr_type_req_illegal_identifier : Error<
+  "expected identifier or template-id in type requirement">;
+def err_requires_expr_type_req_template_args_on_non_template : Error<
+  "template arguments provided for non-template '%0'">;
+def err_expected_semi_requirement : Error<
+  "expected ';' at end of requirement">;
+def err_requires_expr_missing_arrow : Error<
+  "expected '->' before expression type requirement">;
+def err_requires_expr_simple_requirement_noexcept : Error<
+  "'noexcept' can only be used in a compound requirements (with '{' '}' around "
+  "the expression)">;
+def err_requires_expr_simple_requirement_unexpected_tok : Error<
+  "unexpected %0 after expression. Did you intend to use a compound "
+  "requirement? (with '{' '}' around the expression)">;
+def err_requires_expr_compound_requirement_non_type_concept : Error<
+  "only type concepts can be used to constrain the type of an expression "
+  "(%0 is a %select{template|value}1 concept)">;
 
 def err_missing_dependent_template_keyword : Error<
   "use 'template' keyword to treat '%0' as a dependent template name">;

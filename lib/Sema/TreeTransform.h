@@ -493,6 +493,10 @@ public:
   DeclarationNameInfo
   TransformDeclarationNameInfo(const DeclarationNameInfo &NameInfo);
 
+  TypeRequirement *TransformTypeRequirement(TypeRequirement *Req);
+  ExprRequirement *TransformExprRequirement(ExprRequirement *Req);
+  NestedRequirement *TransformNestedRequirement(NestedRequirement *Req);
+
   /// \brief Transform the given template name.
   ///
   /// \param SS The nested-name-specifier that qualifies the template
@@ -2959,7 +2963,58 @@ public:
     return Result;
   }
 
-    /// \brief Build a new Objective-C boxed expression.
+  /// \brief Build a new requires expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildRequiresExpr(SourceLocation RequiresKWLoc,
+                                 RequiresExprBodyDecl *Body,
+                                 ArrayRef<ParmVarDecl *> LocalParameters,
+                                 ArrayRef<Requirement *> Requirements,
+                                 SourceLocation ClosingBraceLoc) {
+    ExprResult Result = getSema().CreateRequiresExpr(RequiresKWLoc, Body,
+                                                     LocalParameters,
+                                                     Requirements,
+                                                     ClosingBraceLoc);
+    if (Result.isInvalid())
+      return ExprError();
+    return Result;
+  }
+
+  TypeRequirement *
+  RebuildTypeRequirement(Requirement::SubstitutionDiagnostic *SubstDiag) {
+    return new (SemaRef.Context) TypeRequirement(SubstDiag);
+  }
+
+  TypeRequirement *RebuildTypeRequirement(TypeSourceInfo *T) {
+    return new (SemaRef.Context) TypeRequirement(T);
+  }
+
+  ExprRequirement *
+  RebuildExprRequirement(Requirement::SubstitutionDiagnostic *SubstDiag,
+                         bool IsSimple, SourceLocation NoexceptLoc,
+                         ExprRequirement::ReturnTypeRequirement Ret) {
+    return new (SemaRef.Context) ExprRequirement(SubstDiag, IsSimple,
+                                                 NoexceptLoc, std::move(Ret));
+  }
+
+  ExprRequirement *
+  RebuildExprRequirement(Expr *E, bool IsSimple, SourceLocation NoexceptLoc,
+                         ExprRequirement::ReturnTypeRequirement Ret) {
+    return new (SemaRef.Context) ExprRequirement(SemaRef, E, IsSimple,
+                                                 NoexceptLoc, std::move(Ret));
+  }
+
+  NestedRequirement *
+  RebuildNestedRequirement(Requirement::SubstitutionDiagnostic *SubstDiag) {
+    return new (SemaRef.Context) NestedRequirement(SubstDiag);
+  }
+
+  NestedRequirement *RebuildNestedRequirement(Expr *Constraint) {
+    return new (SemaRef.Context) NestedRequirement(SemaRef, Constraint);
+  }
+
+  /// \brief Build a new Objective-C boxed expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
@@ -10651,6 +10706,140 @@ TreeTransform<Derived>::TransformConceptSpecializationExpr(
       &TransArgs);
 }
 
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformRequiresExpr(RequiresExpr *E) {
+  SmallVector<ParmVarDecl*, 4> TransParams;
+  SmallVector<QualType, 4> TransParamTypes;
+  Sema::ExtParameterInfoBuilder ExtParamInfos;
+
+  // C++2a [expr.prim.req]p2
+  // Expressions appearing within a requirement-body are unevaluated operands.
+  EnterExpressionEvaluationContext Ctx(
+      SemaRef, Sema::ExpressionEvaluationContext::Unevaluated);
+
+  RequiresExprBodyDecl *Body = RequiresExprBodyDecl::Create(
+      getSema().Context, E->getBody()->getDeclContext(),
+      E->getBody()->getLocStart());
+
+  if (getDerived().TransformFunctionTypeParams(E->getRequiresKWLoc(),
+                                               E->getLocalParameters(),
+                                               /*ParamTypes=*/nullptr,
+                                               /*ParamInfos=*/nullptr,
+                                               TransParamTypes, &TransParams,
+                                               ExtParamInfos))
+    return ExprError();
+
+  for (ParmVarDecl *Param : TransParams)
+    Param->setDeclContext(Body);
+
+  llvm::SmallVector<Requirement *, 4> TransReqs;
+  for (Requirement *Req : E->getRequirements()) {
+    Requirement *TransReq = nullptr;
+    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req))
+      TransReq = getDerived().TransformTypeRequirement(TypeReq);
+    else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req)) {
+      TransReq = getDerived().TransformExprRequirement(ExprReq);
+      if (TransReq) {
+        auto *R = cast<ExprRequirement>(TransReq);
+        if (R->getReturnTypeRequirement().isConstrainedParameter())
+          R->getReturnTypeRequirement()
+              .getConstrainedParamTemplateParameterList()->getParam(0)
+              ->setDeclContext(Body);
+      }
+    } else
+      TransReq = getDerived().TransformNestedRequirement(
+                     cast<NestedRequirement>(Req));
+    if (!TransReq)
+      return ExprError();
+    TransReqs.push_back(TransReq);
+  }
+
+  return getDerived().RebuildRequiresExpr(E->getRequiresKWLoc(), Body,
+                                          TransParams, TransReqs,
+                                          E->getRBraceLoc());
+}
+
+template<typename Derived>
+TypeRequirement *
+TreeTransform<Derived>::TransformTypeRequirement(TypeRequirement *Req) {
+  if (Req->isSubstitutionFailure()) {
+    if (getDerived().AlwaysRebuild())
+      return getDerived().RebuildTypeRequirement(
+              Req->getSubstitutionDiagnostic());
+    return Req;
+  }
+  TypeSourceInfo *TransType = getDerived().TransformType(Req->getType());
+  if (!TransType)
+    return nullptr;
+  return getDerived().RebuildTypeRequirement(TransType);
+}
+
+template<typename Derived>
+ExprRequirement *
+TreeTransform<Derived>::TransformExprRequirement(ExprRequirement *Req) {
+  llvm::PointerUnion<Expr *, Requirement::SubstitutionDiagnostic *> TransExpr;
+  if (Req->isExprSubstitutionFailure())
+    TransExpr = Req->getExprSubstitutionDiagnostic();
+  else {
+    ExprResult TransExprRes = getDerived().TransformExpr(Req->getExpr());
+    if (TransExprRes.isInvalid())
+      return nullptr;
+    TransExpr = TransExprRes.get();
+  }
+
+  llvm::Optional<ExprRequirement::ReturnTypeRequirement> TransRetReq;
+  const auto &RetReq = Req->getReturnTypeRequirement();
+  if (RetReq.isEmpty())
+    TransRetReq.emplace();
+  else if (RetReq.isSubstitutionFailure())
+    TransRetReq.emplace(RetReq.getSubstitutionDiagnostic());
+  else if (RetReq.isTrailingReturnType()) {
+    TypeSourceInfo *TransType = getDerived().TransformType(
+        RetReq.getTrailingReturnTypeExpectedType());
+    if (!TransType)
+      return nullptr;
+    TransRetReq.emplace(getSema().Context, TransType);
+  } else if (RetReq.isConstrainedParameter()) {
+    TemplateParameterList *OrigTPL =
+        RetReq.getConstrainedParamTemplateParameterList();
+    TemplateParameterList *TPL =
+        getDerived().TransformTemplateParameterList(OrigTPL);
+    if (!TPL)
+      return nullptr;
+
+    TypeSourceInfo *TransType = getDerived().TransformType(
+        RetReq.getConstrainedParamExpectedType());
+    if (!TransType)
+      return nullptr;
+    TransRetReq.emplace(getSema().Context, TPL, TransType);
+  }
+  assert(TransRetReq.hasValue() &&
+         "All code paths leading here must set TransRetReq");
+  if (Expr *E = TransExpr.dyn_cast<Expr *>())
+    return getDerived().RebuildExprRequirement(E, Req->isSimple(),
+                                               Req->getNoexceptLoc(),
+                                               std::move(*TransRetReq));
+  return getDerived().RebuildExprRequirement(
+      TransExpr.get<Requirement::SubstitutionDiagnostic *>(), Req->isSimple(),
+      Req->getNoexceptLoc(), std::move(*TransRetReq));
+}
+
+template<typename Derived>
+NestedRequirement *
+TreeTransform<Derived>::TransformNestedRequirement(NestedRequirement *Req) {
+  if (Req->isSubstitutionFailure()) {
+    if (getDerived().AlwaysRebuild())
+      return getDerived().RebuildNestedRequirement(
+          Req->getSubstitutionDiagnostic());
+    return Req;
+  }
+  ExprResult TransConstraint =
+      getDerived().TransformExpr(Req->getConstraintExpr());
+  if (TransConstraint.isInvalid())
+    return nullptr;
+  return getDerived().RebuildNestedRequirement(TransConstraint.get());
+}
 
 template<typename Derived>
 ExprResult

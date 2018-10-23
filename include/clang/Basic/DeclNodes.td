@@ -98,5 +98,6 @@ def Captured : Decl, DeclContext;
 def ClassScopeFunctionSpecialization : Decl;
 def Import : Decl;
 def OMPThreadPrivate : Decl;
+def RequiresExprBody : Decl, DeclContext;
 def Empty : Decl;
 

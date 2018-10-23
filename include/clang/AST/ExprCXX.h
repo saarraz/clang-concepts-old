@@ -4546,6 +4546,68 @@ public:
   }
 };
 
+/// C++2a [expr.prim.req]:
+///     A requires-expression provides a concise way to express requirements on
+///     template arguments. A requirement is one that can be checked by name
+///     lookup (6.4) or by checking properties of types and expressions.
+///     [...]
+///     A requires-expression is a prvalue of type bool [...]
+class RequiresExpr final : public Expr {
+  bool IsSatisfied;
+  SourceLocation RequiresKWLoc;
+  RequiresExprBodyDecl *Body;
+  llvm::SmallVector<ParmVarDecl *, 2> LocalParameters;
+  llvm::SmallVector<Requirement *, 3> Requirements;
+  SourceLocation RBraceLoc;
+
+public:
+  RequiresExpr(ASTContext &C, SourceLocation RequiresKWLoc,
+               RequiresExprBodyDecl *Body,
+               ArrayRef<ParmVarDecl *> LocalParameters,
+               ArrayRef<Requirement *> Requirements,
+               SourceLocation RBraceLoc);
+  RequiresExpr(ASTContext &C, EmptyShell Empty) :
+    RequiresExpr(C, SourceLocation(), nullptr, {}, {}, SourceLocation()) {}
+
+  void setLocalParameters(ArrayRef<ParmVarDecl *> LocalParameters);
+  ArrayRef<ParmVarDecl *> getLocalParameters() const { return LocalParameters; }
+
+  void setBody(RequiresExprBodyDecl *Body) { this->Body = Body; }
+  const RequiresExprBodyDecl *getBody() const { return Body; }
+  RequiresExprBodyDecl *getBody() { return Body; }
+
+  void setRequirements(ArrayRef<Requirement *> Requirements);
+  ArrayRef<Requirement *> getRequirements() const { return Requirements; }
+
+  /// \brief Whether or not the requires clause is satisfied.
+  /// The expression must not be dependent.
+  bool isSatisfied() const {
+    assert(!isValueDependent()
+           && "isSatisfied called on a dependent RequiresExpr");
+    return IsSatisfied;
+  }
+
+  SourceLocation getRequiresKWLoc() const { return RequiresKWLoc; }
+  void setRequiresKWLoc(SourceLocation Loc) { RequiresKWLoc = Loc; }
+
+  SourceLocation getRBraceLoc() const { return RBraceLoc; }
+  void setRBraceLoc(SourceLocation Loc) { RBraceLoc = Loc; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == RequiresExprClass;
+  }
+
+  SourceLocation getLocStart() const LLVM_READONLY { return RequiresKWLoc; }
+  SourceLocation getLocEnd() const LLVM_READONLY {
+    return RBraceLoc;
+  }
+
+  // Iterators
+  child_range children() {
+    return child_range(child_iterator(), child_iterator());
+  }
+};
+
 } // namespace clang
 
 #endif // LLVM_CLANG_AST_EXPRCXX_H

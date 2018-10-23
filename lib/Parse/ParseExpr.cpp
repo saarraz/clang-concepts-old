@@ -613,6 +613,7 @@ class CastExpressionIdValidator : public CorrectionCandidateCallback {
 /// [C++11] user-defined-literal
 ///         '(' expression ')'
 /// [C11]   generic-selection
+/// [C++2a] requires-expression
 ///         '__func__'        [C99 6.4.2.2]
 /// [GNU]   '__FUNCTION__'
 /// [MS]    '__FUNCDNAME__'
@@ -1354,6 +1355,9 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
 
   case tok::kw_delete: // [C++] delete-expression
     return ParseCXXDeleteExpression(false, Tok.getLocation());
+
+  case tok::kw_requires: // [C++2a] requires-expression
+    return ParseRequiresExpression();
 
   case tok::kw_noexcept: { // [C++0x] 'noexcept' '(' expression ')'
     Diag(Tok, diag::warn_cxx98_compat_noexcept_expr);

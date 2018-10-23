@@ -1680,6 +1680,11 @@ private:
   ExprResult ParseCoyieldExpression();
 
   //===--------------------------------------------------------------------===//
+  // C++ Concepts
+
+  ExprResult ParseRequiresExpression();
+
+  //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
 
   /// ParseInitializer
@@ -2484,7 +2489,7 @@ private:
          Declarator &D,
          SmallVectorImpl<DeclaratorChunk::ParamInfo> &ParamInfo);
   void ParseParameterDeclarationClause(
-         Declarator &D,
+         Declarator::TheContext DeclaratorContext,
          ParsedAttributes &attrs,
          SmallVectorImpl<DeclaratorChunk::ParamInfo> &ParamInfo,
          SourceLocation &EllipsisLoc);

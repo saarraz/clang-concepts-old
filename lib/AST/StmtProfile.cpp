@@ -1241,6 +1241,54 @@ void StmtProfiler::VisitConceptSpecializationExpr(
                          S->getTemplateArgsAsWritten()->NumTemplateArgs);
 }
 
+void StmtProfiler::VisitRequiresExpr(const RequiresExpr *S) {
+  VisitExpr(S);
+  ID.AddInteger(S->getLocalParameters().size());
+  for (ParmVarDecl *LocalParam : S->getLocalParameters())
+    VisitDecl(LocalParam);
+  ID.AddInteger(S->getRequirements().size());
+  for (Requirement *Req : S->getRequirements()) {
+    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req)) {
+      ID.AddInteger(Requirement::RK_Type);
+      ID.AddBoolean(TypeReq->isSubstitutionFailure());
+      if (!TypeReq->isSubstitutionFailure())
+        VisitType(TypeReq->getType()->getType());
+    } else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req)) {
+      ID.AddInteger(Requirement::RK_Compound);
+      ID.AddBoolean(ExprReq->isExprSubstitutionFailure());
+      if (!ExprReq->isExprSubstitutionFailure())
+        Visit(ExprReq->getExpr());
+      // C++2a [expr.prim.req.compound]p1 Example:
+      //    [...] The compound-requirement in C1 requires that x++ is a valid
+      //    expression. It is equivalent to the simple-requirement x++; [...]
+      // We therefore do not profile isSimple() here.
+      ID.AddBoolean(ExprReq->getNoexceptLoc().isValid());
+      const ExprRequirement::ReturnTypeRequirement &RetReq =
+          ExprReq->getReturnTypeRequirement();
+      if (RetReq.isEmpty()) {
+        ID.AddInteger(0);
+      } else if (RetReq.isTrailingReturnType()) {
+        ID.AddInteger(1);
+        VisitType(RetReq.getTrailingReturnTypeExpectedType()->getType());
+      } else if (RetReq.isConstrainedParameter()) {
+        ID.AddInteger(2);
+        Visit(RetReq.getConstrainedParamTemplateParameterList()
+                  ->getRequiresClause());
+        VisitType(RetReq.getConstrainedParamExpectedType()->getType());
+      } else {
+        assert(RetReq.isSubstitutionFailure());
+        ID.AddInteger(3);
+      }
+    } else {
+      ID.AddInteger(Requirement::RK_Nested);
+      auto *NestedReq = cast<NestedRequirement>(Req);
+      ID.AddBoolean(NestedReq->isSubstitutionFailure());
+      if (!NestedReq->isSubstitutionFailure())  
+        Visit(NestedReq->getConstraintExpr());
+    }
+  }
+}
+
 static Stmt::StmtClass DecodeOperatorCall(const CXXOperatorCallExpr *S,
                                           UnaryOperatorKind &UnaryOp,
                                           BinaryOperatorKind &BinaryOp) {
