@@ -4188,10 +4188,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) DependentCoawaitExpr(Empty);
       break;
 
-    case EXPR_CONCEPT_SPECIALIZATION:
+    case EXPR_CONCEPT_SPECIALIZATION: {
       unsigned numTemplateArgs = Record[ASTStmtReader::NumExprFields];
       S = ConceptSpecializationExpr::Create(Context, Empty, numTemplateArgs);
       break;
+    }
 
     case EXPR_REQUIRES:
       S = new (Context) RequiresExpr(Context, Empty);
