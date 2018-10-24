@@ -652,7 +652,7 @@ ASTContext::CanonicalTemplateTemplateParm::Profile(llvm::FoldingSetNodeID &ID,
     auto *CSE = cast<ConceptSpecializationExpr>(CE);
     ID.AddPointer(CSE->getNamedConcept()->getCanonicalDecl());
 
-    auto *TALI = CSE->getTemplateArgumentListInfo();
+    auto *TALI = CSE->getTemplateArgsAsWritten();
     for (auto &Arg : TALI->arguments())
       if (&Arg != &*TALI->arguments().begin())
         Arg.getArgument().Profile(ID, C);

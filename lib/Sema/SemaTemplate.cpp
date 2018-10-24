@@ -6599,7 +6599,7 @@ bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
         // If the argument has no associated constraints, then the parameter is
         // definitely at least as specialized as the argument.
         // Otherwise - we need a more thorough check.
-        Template->getAssociatedConstraints() == nullptr)
+        !Template->hasAssociatedConstraints())
       return false;
 
     if (isTemplateTemplateParameterAtLeastAsSpecializedAs(Params, Template,
