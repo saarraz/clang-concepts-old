@@ -43,7 +43,8 @@ template<typename T> requires requires { typename T::type; }
 // expected-note@-3 {{because 'T::type' would be invalid: typename specifier refers to non-type member 'type' in 'D'}}
 // expected-note@-4 {{in instantiation of template class 'invalid<D>' requested here}}
 // expected-note@-5 {{in instantiation of requirement here}}
-// expected-note@-6 {{because 'T::type' would be invalid}}
+// expected-note@-6 {{while substituting template arguments into constraint expression here}}
+// expected-note@-7 {{because 'T::type' would be invalid}}
 struct r1 {};
 
 using r1i1 = r1<identity<int>>;
@@ -55,7 +56,7 @@ template<typename T> struct invalid { typename T::type x; };
 // expected-error@-1 {{typename specifier refers to non-type member 'type' in 'D'}}
 using r1i5 = r1<invalid<D>>;
 // expected-error@-1 {{constraints not satisfied for class template 'r1' [with T = invalid<D>]}}
-// expected-note@-2 {{during template argument deduction for class template 'r1' [with T = invalid<D>]}}
+// expected-note@-2 {{while checking constraint satisfaction for template 'r1<invalid<D> >' required here}}
 
 // mismatching template arguments
 
