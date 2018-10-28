@@ -1021,8 +1021,6 @@ ExprRequirement::ReturnTypeRequirement::calculateSatisfaction(Sema &S,
   if (Value.is<SubstitutionDiagnostic *>())
     return SS_TypeRequirementSubstitutionFailure;
   if (auto *TypeReq = Value.dyn_cast<TypeSourceInfo *>()) {
-    if (E->getType() == TypeReq->getType())
-      return SS_Satisfied;
     InitializedEntity InventedEntity =
         InitializedEntity::InitializeResult(TypeReq->getTypeLoc().getLocStart(),
                                             TypeReq->getType(), /*NRVO=*/false);
