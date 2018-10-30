@@ -3707,6 +3707,33 @@ void Sema::InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                      TemplateArgs);
 }
 
+bool Sema::CheckInstantiatedFunctionTemplateConstraints(
+    SourceLocation PointOfInstantiation, FunctionDecl *Decl,
+    ArrayRef<TemplateArgument> TemplateArgs,
+    ConstraintSatisfaction &Satisfaction) {
+  // Enter the scope of this instantiation. We don't use
+  // PushDeclContext because we don't have a scope.
+  Sema::ContextRAII savedContext(*this, Decl);
+  LocalInstantiationScope Scope(*this);
+
+  MultiLevelTemplateArgumentList MLTAL; // TODO: Concepts: fix this once we have
+                                        //       proper delayed instantiation of
+                                        //       constraints.
+  MLTAL.addOuterTemplateArguments(TemplateArgs);
+  if (addInstantiatedParametersToScope(*this, Decl,
+                                       Decl->getTemplateInstantiationPattern(),
+                                       Scope, MLTAL))
+    return true;
+
+  FunctionTemplateDecl *Template = Decl->getPrimaryTemplate();
+  // Note - code synthesis context for the constraints check is created
+  // inside CheckConstraintsSatisfaction.
+  return CheckConstraintSatisfaction(Template,
+                                     Template->getAssociatedConstraints(),
+                                     TemplateArgs, PointOfInstantiation,
+                                     Satisfaction);
+}
+
 /// \brief Initializes the common fields of an instantiation function
 /// declaration (New) from the corresponding fields of its template (Tmpl).
 ///

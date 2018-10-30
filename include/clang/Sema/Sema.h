@@ -7968,6 +7968,10 @@ public:
 
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
+  bool CheckInstantiatedFunctionTemplateConstraints(
+      SourceLocation PointOfInstantiation, FunctionDecl *Decl,
+      ArrayRef<TemplateArgument> TemplateArgs,
+      ConstraintSatisfaction &Satisfaction);
   void InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
                                      FunctionDecl *Function,
                                      bool Recursive = false,
