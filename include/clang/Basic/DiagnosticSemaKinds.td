@@ -4457,6 +4457,8 @@ def note_template_default_arg_checking : Note<
   "while checking a default template argument used here">;
 def note_concept_specialization_here : Note<
   "while checking the satisfaction of concept '%0' requested here">;
+def note_nested_requirement_here : Note<
+  "while checking the satisfaction of nested requirement requested here">;
 def note_checking_constraints_for_template_id_here : Note<
   "while checking constraint satisfaction for template '%0' required here">;
 def note_checking_constraints_for_var_spec_id_here : Note<

@@ -194,6 +194,7 @@ bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
   case DeducedTemplateArgumentSubstitution:
   case PriorTemplateArgumentSubstitution:
   case ConstraintsCheck:
+  case NestedRequirementConstraintsCheck:
     return true;
 
   case RequirementInstantiation:
@@ -357,6 +358,16 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(
           SemaRef, CodeSynthesisContext::RequirementInstantiation,
           PointOfInstantiation, InstantiationRange, /*Entity=*/nullptr,
           /*Template=*/nullptr, /*TemplateArgs=*/None, &DeductionInfo) {}
+
+
+Sema::InstantiatingTemplate::InstantiatingTemplate(
+    Sema &SemaRef, SourceLocation PointOfInstantiation, NestedRequirement *Req,
+    ConstraintsCheck, SourceRange InstantiationRange)
+    : InstantiatingTemplate(
+          SemaRef, CodeSynthesisContext::NestedRequirementConstraintsCheck,
+          PointOfInstantiation, InstantiationRange, /*Entity=*/nullptr,
+          /*Template=*/nullptr, /*TemplateArgs=*/None) {}
+
 
 Sema::InstantiatingTemplate::InstantiatingTemplate(
     Sema &SemaRef, SourceLocation PointOfInstantiation,
@@ -657,6 +668,12 @@ void Sema::PrintInstantiationStack() {
         << Active->InstantiationRange;
       break;
 
+    case CodeSynthesisContext::NestedRequirementConstraintsCheck:
+      Diags.Report(Active->PointOfInstantiation,
+                   diag::note_nested_requirement_here)
+        << Active->InstantiationRange;
+      break;
+
     case CodeSynthesisContext::DeclaringSpecialMember:
       Diags.Report(Active->PointOfInstantiation,
                    diag::note_in_declaration_of_implicit_special_member)
@@ -724,6 +741,7 @@ Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
     case CodeSynthesisContext::DefaultFunctionArgumentInstantiation:
     case CodeSynthesisContext::ExceptionSpecInstantiation:
     case CodeSynthesisContext::ConstraintsCheck:
+    case CodeSynthesisContext::NestedRequirementConstraintsCheck:
       // This is a template instantiation, so there is no SFINAE.
       return None;
 
@@ -1753,16 +1771,24 @@ TemplateInstantiator::TransformNestedRequirement(NestedRequirement *Req) {
           Req->getSubstitutionDiagnostic());
     return Req;
   }
-
-  Sema::SFINAETrap Trap(SemaRef);
-  TemplateDeductionInfo Info(Req->getConstraintExpr()->getLocStart());
-
-  Sema::InstantiatingTemplate ConstrInst(SemaRef,
-      Req->getConstraintExpr()->getLocStart(), Req, Info,
+  Sema::InstantiatingTemplate ReqInst(SemaRef,
+      Req->getConstraintExpr()->getLocStart(), Req,
+      Sema::InstantiatingTemplate::ConstraintsCheck{},
       Req->getConstraintExpr()->getSourceRange());
-  if (ConstrInst.isInvalid())
-    return nullptr;
-  ExprResult TransConstraint = TransformExpr(Req->getConstraintExpr());
+
+  ExprResult TransConstraint;
+  TemplateDeductionInfo Info(Req->getConstraintExpr()->getLocStart());
+  {
+    EnterExpressionEvaluationContext ContextRAII(
+        SemaRef, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+    Sema::SFINAETrap Trap(SemaRef);
+    Sema::InstantiatingTemplate ConstrInst(SemaRef,
+        Req->getConstraintExpr()->getLocStart(), Req, Info,
+        Req->getConstraintExpr()->getSourceRange());
+    if (ConstrInst.isInvalid())
+      return nullptr;
+    TransConstraint = TransformExpr(Req->getConstraintExpr());
+  }
   if (TransConstraint.isInvalid())
     return RebuildNestedRequirement(createSubstDiag(SemaRef, Info,
         [&] (llvm::raw_string_ostream& OS) {

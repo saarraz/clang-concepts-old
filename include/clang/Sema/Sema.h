@@ -7273,6 +7273,10 @@ public:
       /// We are instantiating a requirement of a requires expression.
       RequirementInstantiation,
 
+      /// We are checking the satisfaction of a nested requirement of a requires
+      /// expression.
+      NestedRequirementConstraintsCheck,
+
       /// We are declaring an implicit special member function.
       DeclaringSpecialMember,
 
@@ -7549,11 +7553,17 @@ public:
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange);
 
-    /// \brief Note that we are instantiating a requirement of a requires
-    /// expression.
+    /// \brief Note that we are substituting template arguments into a part of
+    /// a requirement of a requires expression.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           Requirement *Req,
                           sema::TemplateDeductionInfo &DeductionInfo,
+                          SourceRange InstantiationRange = SourceRange());
+
+    /// \brief Note that we are checking the satisfaction of the constraint
+    /// expression inside of a nested requirement.
+    InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                          NestedRequirement *Req, ConstraintsCheck,
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we have finished instantiating this template.
