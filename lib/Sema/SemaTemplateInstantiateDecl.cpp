@@ -3716,22 +3716,25 @@ bool Sema::CheckInstantiatedFunctionTemplateConstraints(
   Sema::ContextRAII savedContext(*this, Decl);
   LocalInstantiationScope Scope(*this);
 
-  MultiLevelTemplateArgumentList MLTAL; // TODO: Concepts: fix this once we have
-                                        //       proper delayed instantiation of
-                                        //       constraints.
-  MLTAL.addOuterTemplateArguments(TemplateArgs);
-  if (addInstantiatedParametersToScope(*this, Decl,
-                                       Decl->getTemplateInstantiationPattern(),
-                                       Scope, MLTAL))
-    return true;
+  MultiLevelTemplateArgumentList MLTAL =
+    getTemplateInstantiationArgs(Decl, nullptr, /*RelativeToPrimary*/true);
+
+  // If this is not an explicit specialization - we need to get the instantiated
+  // version of the template arguments and add them to scope for the
+  // substitution.
+  if (Decl->isTemplateInstantiation())
+    if (addInstantiatedParametersToScope(*this, Decl,
+                                        Decl->getTemplateInstantiationPattern(),
+                                         Scope, MLTAL))
+      return true;
 
   FunctionTemplateDecl *Template = Decl->getPrimaryTemplate();
   // Note - code synthesis context for the constraints check is created
   // inside CheckConstraintsSatisfaction.
   return CheckConstraintSatisfaction(Template,
                                      Template->getAssociatedConstraints(),
-                                     TemplateArgs, PointOfInstantiation,
-                                     Satisfaction);
+                                     TemplateArgs,
+                                     PointOfInstantiation, Satisfaction);
 }
 
 /// \brief Initializes the common fields of an instantiation function

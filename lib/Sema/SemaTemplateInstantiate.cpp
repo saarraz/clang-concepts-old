@@ -145,7 +145,7 @@ Sema::getTemplateInstantiationArgs(NamedDecl *D,
           break;
 
         // If this function is a generic lambda specialization, we are done.
-        if (isGenericLambdaCallOperatorSpecialization(Function))
+        if (isGenericLambdaCallOperatorOrStaticInvokerSpecialization(Function))
           break;
 
       } else if (FunctionTemplateDecl *FunTmpl
