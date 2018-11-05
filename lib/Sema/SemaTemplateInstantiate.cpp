@@ -1661,7 +1661,7 @@ TemplateInstantiator::TransformTypeRequirement(TypeRequirement *Req) {
   if (TypeInst.isInvalid())
     return nullptr;
   TypeSourceInfo *TransType = TransformType(Req->getType());
-  if (!TransType)
+  if (!TransType || Trap.hasErrorOccurred())
     return RebuildTypeRequirement(createSubstDiag(SemaRef, Info,
         [&] (llvm::raw_string_ostream& OS) {
             Req->getType()->getType().print(OS, SemaRef.getPrintingPolicy());
@@ -1687,7 +1687,7 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
     if (ExprInst.isInvalid())
       return nullptr;
     ExprResult TransExprRes = TransformExpr(Req->getExpr());
-    if (TransExprRes.isInvalid())
+    if (TransExprRes.isInvalid() || Trap.hasErrorOccurred())
       TransExpr = createSubstDiag(SemaRef, Info,
           [&] (llvm::raw_string_ostream& OS) {
               Req->getExpr()->printPretty(OS, nullptr,
@@ -1788,13 +1788,13 @@ TemplateInstantiator::TransformNestedRequirement(NestedRequirement *Req) {
     if (ConstrInst.isInvalid())
       return nullptr;
     TransConstraint = TransformExpr(Req->getConstraintExpr());
+    if (TransConstraint.isInvalid() || Trap.hasErrorOccurred())
+      return RebuildNestedRequirement(createSubstDiag(SemaRef, Info,
+          [&] (llvm::raw_string_ostream& OS) {
+              Req->getConstraintExpr()->printPretty(OS, nullptr,
+                                                    SemaRef.getPrintingPolicy());
+          }));
   }
-  if (TransConstraint.isInvalid())
-    return RebuildNestedRequirement(createSubstDiag(SemaRef, Info,
-        [&] (llvm::raw_string_ostream& OS) {
-            Req->getConstraintExpr()->printPretty(OS, nullptr,
-                                                  SemaRef.getPrintingPolicy());
-        }));
   return RebuildNestedRequirement(TransConstraint.get());
 }
 

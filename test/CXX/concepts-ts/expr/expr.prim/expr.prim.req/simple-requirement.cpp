@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ %s -verify
-
+#if 0
 static_assert(requires { 0; });
 static_assert(requires { "aaaa"; });
 static_assert(requires { (0).da; }); // expected-error{{member reference base type 'int' is not a structure or union}}
@@ -45,7 +45,18 @@ struct r4 {};
 using r4i1 = r4<int>;
 using r4i2 = r4<int[10]>;
 using r4i3 = r4<int(int)>;
+#endif
+template<class T> void f(T) = delete;
+template<class T> requires sizeof(T) == 1 void f(T) { }
 
+template<typename T> requires requires(T t) { f(t); }
+// expected-note@-1{{because 'f(t)' would be invalid: call to deleted function 'f'}}
+struct r5 {};
+
+using r5i1 = r5<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r5' [with T = int]}}
+using r5i2 = r5<char>;
+#if 0
 // C++ [expr.prim.req.simple] Example
 namespace std_example {
   template<typename T> concept C =
@@ -58,3 +69,4 @@ namespace std_example {
   using c1c1 = C_check<void>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = void]}}
   using c1c2 = C_check<int *>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = int *]}}
 }
+#endif
