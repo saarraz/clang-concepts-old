@@ -1978,6 +1978,9 @@ def err_auto_not_allowed : Error<
   "|in type allocated by 'new'|in K&R-style function parameter"
   "|in template parameter|in friend declaration"
   "|in requires expression parameter}1">;
+def err_auto_not_allowed_in_return_type_requirement : Error<
+  "%select{'auto'|'decltype(auto)'|'__auto_type'}0 not allowed in expression "
+  "type requirement">;
 def err_dependent_deduced_tst : Error<
   "typename specifier refers to "
   "%select{class template|function template|variable template|alias template|"
