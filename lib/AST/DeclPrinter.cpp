@@ -1075,9 +1075,8 @@ void DeclPrinter::VisitTemplateDecl(const TemplateDecl *D) {
     if (TTP->isParameterPack())
       Out << "...";
     Out << D->getName();
-  } else {
-    Visit(D->getTemplatedDecl());
-  }
+  } else if (auto *TD = D->getTemplatedDecl())
+    Visit(TD);
 }
 
 void DeclPrinter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {

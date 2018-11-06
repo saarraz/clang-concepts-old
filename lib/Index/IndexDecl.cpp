@@ -688,7 +688,9 @@ public:
       }
     }
 
-    return Visit(D->getTemplatedDecl());
+    if (auto *TTD = D->getTemplatedDecl())
+      return Visit(TTD);
+    return true;
   }
 
   bool VisitFriendDecl(const FriendDecl *D) {
