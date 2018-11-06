@@ -633,7 +633,7 @@ public:
                                   CSE->getNamedConcept(), Mapping);
       }
 
-      // This is nota top level CSE.
+      // This is not a top level CSE.
       //
       // template<typename T1, typename T2>
       // concept C1 = true;
@@ -694,8 +694,8 @@ public:
             diag::note_could_not_normalize_argument_substitution_failed);
         return llvm::Optional<NormalizedConstraint>{};
       }
-      Mapping = cast<ConceptSpecializationExpr>(Result.get())
-                    ->getTemplateArgsAsWritten();
+      ParameterMapping = cast<ConceptSpecializationExpr>(Result.get())
+                           ->getTemplateArgsAsWritten();
 
       TemplateArgumentListInfo SubstTALI(ParameterMapping->LAngleLoc,
                                          ParameterMapping->RAngleLoc);

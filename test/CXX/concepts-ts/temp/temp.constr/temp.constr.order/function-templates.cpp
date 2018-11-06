@@ -50,5 +50,19 @@ static_assert(e<unsigned>() == 2);
 static_assert(e<char[10]>() == 3);
 static_assert(e<char>() == 1);
 
+template<class T, class U>
+concept BiggerThan = sizeof(T) > sizeof(U);
 
+template<class T>
+concept BiggerThanInt = BiggerThan<T, int>;
 
+template<class T, class U>
+void f() requires BiggerThan<T, U> { }
+// expected-note@-1 {{candidate function [with T = long long, U = int]}}
+
+template<class T, class U>
+void f() requires BiggerThanInt<T> { }
+// expected-note@-1 {{candidate function [with T = long long, U = int]}}
+
+static_assert(sizeof(f<long long, int>()));
+// expected-error@-1 {{call to 'f' is ambiguous}}
