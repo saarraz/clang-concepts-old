@@ -240,13 +240,13 @@ namespace std_example {
   using c4c2 = C4_check<int *>; // expected-error{{constraints not satisfied for class template 'C4_check' [with T = int *]}}
   using c4c3 = C4_check<T3>; // expected-error{{constraints not satisfied for class template 'C4_check' [with T = std_example::T3]}}
 
+  template<typename T>
+  void g(T t) noexcept(sizeof(T) == 1) {}
+
   template<typename T> concept C5 =
     requires(T x) {
       {g(x)} noexcept; // expected-note{{because 'g(x)' may throw an exception}}
     };
-
-  template<typename T>
-  void g(T t) noexcept(sizeof(T) == 1) {}
 
   static_assert(C5<char>);
   template<C5 T> struct C5_check {}; // expected-note{{because 'short' does not satisfy 'C5'}}
