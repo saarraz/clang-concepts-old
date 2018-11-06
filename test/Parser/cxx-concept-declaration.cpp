@@ -55,3 +55,10 @@ static_assert(!C17<false>);
 template <bool word> concept C18 = integral_constant<bool, wor>::value;
 // expected-error@-1{{use of undeclared identifier 'wor'; did you mean 'word'?}}
 // expected-note@-2{{'word' declared here}}
+
+namespace N {
+  template<typename T> concept C19 = true;
+}
+using N::C19;
+
+static_assert(C19<int>);
