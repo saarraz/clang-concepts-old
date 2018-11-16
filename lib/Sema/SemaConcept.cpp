@@ -413,11 +413,10 @@ static void diagnoseWellFormedUnsatisfiedConstraintExpr(Sema &S,
     S.DiagnoseUnsatisfiedConstraint(CSE->getSatisfaction());
     return;
   } else if (auto *RE = dyn_cast<RequiresExpr>(SubstExpr)) {
-    bool FirstReq = First;
     for (Requirement *Req : RE->getRequirements())
-      if (!Req->isSatisfied()) {
-        Req->Diagnose(S, FirstReq);
-        FirstReq = false;
+      if (!Req->isDependent() && !Req->isSatisfied()) {
+        Req->Diagnose(S, First);
+        break;
       }
     return;
   }

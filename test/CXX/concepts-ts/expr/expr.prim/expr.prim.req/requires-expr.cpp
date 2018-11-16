@@ -19,14 +19,15 @@ struct Y {
 
 template<typename T> requires requires (T t) {
   requires false; // expected-note{{because 'false' evaluated to false}}
-  requires false; // expected-note{{and 'false' evaluated to false}}
+  requires false;
   requires requires {
-    requires false; // expected-note{{and 'false' evaluated to false}}
+    requires false;
   };
 }
 struct r1 { };
 
-using r1i = r1<int>; // expected-error{{constraints not satisfied for class template 'r1' [with T = int]}}
+using r1i = r1<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r1' [with T = int]}}
 
 template<typename T> requires requires (T t) {
   requires requires {
@@ -35,7 +36,8 @@ template<typename T> requires requires (T t) {
 }
 struct r2 { };
 
-using r2i = r2<int>; // expected-error{{constraints not satisfied for class template 'r2' [with T = int]}}
+using r2i = r2<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r2' [with T = int]}}
 
 template<typename T> requires requires (T t) {
   requires requires {
@@ -48,4 +50,15 @@ template<typename T> requires requires (T t) {
 }
 struct r3 { };
 
-using r3i = r3<int>; // expected-error{{constraints not satisfied for class template 'r3' [with T = int]}}
+using r3i = r3<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r3' [with T = int]}}
+
+template<typename T>
+struct S { static const int s = T::value; };
+
+template<typename T> requires requires { T::value; S<T>::s; }
+// expected-note@-1 {{because 'T::value' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
+struct r4 { };
+
+using r4i = r4<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r4' [with T = int]}}

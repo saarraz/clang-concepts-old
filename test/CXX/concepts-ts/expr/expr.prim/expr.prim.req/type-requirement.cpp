@@ -150,23 +150,32 @@ static_assert(requires { typename Z<int>; });
 
 // C++ [expr.prim.req.type] Example
 namespace std_example {
-  template<typename T, typename T::type = 0> struct S; // expected-note{{and 'S<T>' would be invalid: type 'int' cannot be used prior to '::' because it has no members}} expected-note{{because 'S<T>' would be invalid: no type named 'type' in 'std_example::has_inner}} expected-note{{and 'S<T>' would be invalid: type 'void' cannot be used prior to '::' because it has no members}}
-  template<typename T> using Ref = T&; // expected-note{{and 'Ref<T>' would be invalid: cannot form a reference to 'void'}}
-  template<typename T> concept C =
+  template<typename T, typename T::type = 0> struct S;
+  // expected-note@-1 {{because 'S<T>' would be invalid: no type named 'type' in 'std_example::has_inner}}
+  template<typename T> using Ref = T&; // expected-note{{because 'Ref<T>' would be invalid: cannot form a reference to 'void'}}
+  template<typename T> concept C1 =
     requires {
-      typename T::inner; // expected-note{{because 'T::inner' would be invalid: type 'int' cannot be used prior to '::' because it has no members}} expected-note{{because 'T::inner' would be invalid: no type named 'inner' in 'std_example::has_type'}} expected-note{{because 'T::inner' would be invalid: type 'void' cannot be used prior to '::' because it has no members}}
-      typename S<T>;
-      typename Ref<T>;
+      typename T::inner;
+      // expected-note@-1 {{because 'T::inner' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
+      // expected-note@-2 {{because 'T::inner' would be invalid: no type named 'inner' in 'std_example::has_type'}}
     };
+  template<typename T> concept C2 = requires { typename S<T>; };
+  template<typename T> concept C3 = requires { typename Ref<T>; };
 
   struct has_inner { using inner = int;};
   struct has_type { using type = int; };
   struct has_inner_and_type { using inner = int; using type = int; };
 
-  static_assert(C<has_inner_and_type>);
-  template<C T> struct C_check {}; // expected-note{{because 'int' does not satisfy 'C'}} expected-note{{because 'std_example::has_type' does not satisfy 'C'}} expected-note{{because 'std_example::has_inner' does not satisfy 'C'}} expected-note{{because 'void' does not satisfy 'C'}}
-  using c1 = C_check<int>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = int]}}
-  using c2 = C_check<has_type>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = std_example::has_type]}}
-  using c3 = C_check<has_inner>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = std_example::has_inner]}}
-  using c4 = C_check<void>; // expected-error{{constraints not satisfied for class template 'C_check' [with T = void]}}
+  static_assert(C1<has_inner_and_type> && C2<has_inner_and_type> && C3<has_inner_and_type>);
+  template<C1 T> struct C1_check {};
+  // expected-note@-1 {{because 'int' does not satisfy 'C1'}}
+  // expected-note@-2 {{because 'std_example::has_type' does not satisfy 'C1'}}
+  template<C2 T> struct C2_check {};
+  // expected-note@-1 {{because 'std_example::has_inner' does not satisfy 'C2'}}
+  template<C3 T> struct C3_check {};
+  // expected-note@-1 {{because 'void' does not satisfy 'C3'}}
+  using c1 = C1_check<int>; // expected-error{{constraints not satisfied for class template 'C1_check' [with T = int]}}
+  using c2 = C1_check<has_type>; // expected-error{{constraints not satisfied for class template 'C1_check' [with T = std_example::has_type]}}
+  using c3 = C2_check<has_inner>; // expected-error{{constraints not satisfied for class template 'C2_check' [with T = std_example::has_inner]}}
+  using c4 = C3_check<void>; // expected-error{{constraints not satisfied for class template 'C3_check' [with T = void]}}
 }

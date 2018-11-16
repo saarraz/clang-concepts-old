@@ -493,6 +493,8 @@ public:
   DeclarationNameInfo
   TransformDeclarationNameInfo(const DeclarationNameInfo &NameInfo);
 
+  bool TransformRequiresExprRequirements(ArrayRef<Requirement *> Reqs,
+      llvm::SmallVectorImpl<Requirement *> &Transformed);
   TypeRequirement *TransformTypeRequirement(TypeRequirement *Req);
   ExprRequirement *TransformExprRequirement(ExprRequirement *Req);
   NestedRequirement *TransformNestedRequirement(NestedRequirement *Req);
@@ -10733,31 +10735,41 @@ TreeTransform<Derived>::TransformRequiresExpr(RequiresExpr *E) {
   for (ParmVarDecl *Param : TransParams)
     Param->setDeclContext(Body);
 
-  llvm::SmallVector<Requirement *, 4> TransReqs;
-  for (Requirement *Req : E->getRequirements()) {
-    Requirement *TransReq = nullptr;
-    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req))
-      TransReq = getDerived().TransformTypeRequirement(TypeReq);
-    else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req)) {
-      TransReq = getDerived().TransformExprRequirement(ExprReq);
-      if (TransReq) {
-        auto *R = cast<ExprRequirement>(TransReq);
-        if (R->getReturnTypeRequirement().isConstrainedParameter())
-          R->getReturnTypeRequirement()
-              .getConstrainedParamTemplateParameterList()->getParam(0)
-              ->setDeclContext(Body);
-      }
-    } else
-      TransReq = getDerived().TransformNestedRequirement(
-                     cast<NestedRequirement>(Req));
-    if (!TransReq)
-      return ExprError();
-    TransReqs.push_back(TransReq);
-  }
+  SmallVector<Requirement *, 4> TransReqs;
+  if (getDerived().TransformRequiresExprRequirements(E->getRequirements(),
+                                                     TransReqs))
+    return ExprError();
+
+  for (Requirement *Req : TransReqs)
+    if (auto *ER = dyn_cast<ExprRequirement>(Req))
+      if (ER->getReturnTypeRequirement().isConstrainedParameter())
+        ER->getReturnTypeRequirement()
+                .getConstrainedParamTemplateParameterList()->getParam(0)
+                ->setDeclContext(Body);
 
   return getDerived().RebuildRequiresExpr(E->getRequiresKWLoc(), Body,
                                           TransParams, TransReqs,
                                           E->getRBraceLoc());
+}
+
+template<typename Derived>
+bool TreeTransform<Derived>::TransformRequiresExprRequirements(
+    ArrayRef<Requirement *> Reqs,
+    SmallVectorImpl<Requirement *> &Transformed) {
+  for (Requirement *Req : Reqs) {
+    Requirement *TransReq = nullptr;
+    if (auto *TypeReq = dyn_cast<TypeRequirement>(Req))
+      TransReq = getDerived().TransformTypeRequirement(TypeReq);
+    else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req))
+      TransReq = getDerived().TransformExprRequirement(ExprReq);
+    else
+      TransReq = getDerived().TransformNestedRequirement(
+                     cast<NestedRequirement>(Req));
+    if (!TransReq)
+      return true;
+    Transformed.push_back(TransReq);
+  }
+  return false;
 }
 
 template<typename Derived>

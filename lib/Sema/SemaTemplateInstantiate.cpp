@@ -25,6 +25,7 @@
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "clang/Sema/SemaConcept.h"
 
 using namespace clang;
 using namespace sema;
@@ -1005,6 +1006,34 @@ namespace {
     ExprResult TransformRequiresExpr(RequiresExpr *E) {
       LocalInstantiationScope Scope(SemaRef, /*CombineWithOuterScope=*/true);
       return TreeTransform<TemplateInstantiator>::TransformRequiresExpr(E);
+    }
+
+    bool TransformRequiresExprRequirements(ArrayRef<Requirement *> Reqs,
+        SmallVectorImpl<Requirement *> &Transformed) {
+      bool SatisfcationDetermined = false;
+      for (Requirement *Req : Reqs) {
+        Requirement *TransReq = nullptr;
+        if (!SatisfcationDetermined) {
+          if (auto *TypeReq = dyn_cast<TypeRequirement>(Req))
+            TransReq = TransformTypeRequirement(TypeReq);
+          else if (auto *ExprReq = dyn_cast<ExprRequirement>(Req))
+            TransReq = TransformExprRequirement(ExprReq);
+          else
+            TransReq = TransformNestedRequirement(cast<NestedRequirement>(Req));
+          if (!TransReq)
+            return true;
+          if (!TransReq->isDependent() && !TransReq->isSatisfied())
+            // [expr.prim.req]p6
+            //   [...]  The substitution and semantic constraint checking
+            //   proceeds in lexical order and stops when a condition that
+            //   determines the result of the requires-expression is
+            //   encountered. [..]
+            SatisfcationDetermined = true;
+        } else
+          TransReq = Req;
+        Transformed.push_back(TransReq);
+      }
+      return false;
     }
 
     TemplateParameterList *TransformTemplateParameterList(

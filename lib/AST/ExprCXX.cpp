@@ -1562,8 +1562,11 @@ void RequiresExpr::setRequirements(ArrayRef<Requirement *> Requirements) {
   for (Requirement *R : Requirements) {
     Dependent |= R->isDependent();
     ContainsUnexpandedParameterPack |= R->containsUnexpandedParameterPack();
-    if (!Dependent)
-      IsSatisfied &= R->isSatisfied();
+    if (!Dependent) {
+      IsSatisfied = R->isSatisfied();
+      if (!IsSatisfied)
+        break;
+    }
   }
   this->Requirements.assign(Requirements.begin(), Requirements.end());
   IsSatisfied |= Dependent;
