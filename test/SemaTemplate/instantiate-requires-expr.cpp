@@ -269,3 +269,11 @@ false_v<(requires(Ts t) { requires sizeof(t) == 0; t++; } && ...)>
 struct r5 {};
 
 using r5i = r5<int, short>; // expected-error{{constraints not satisfied for class template 'r5' [with Ts = <int, short>]}}
+
+template<typename T> requires
+false_v<(requires(T t) { T{t}; })> // T{t} creates an "UnevaluatedList" context.
+// expected-note@-1 {{because 'false_v<(requires (int t) { int{t}; })>' evaluated to false}}
+struct r6 {};
+
+using r6i = r6<int>;
+// expected-error@-1 {{constraints not satisfied for class template 'r6' [with T = int]}}

@@ -2960,11 +2960,6 @@ ExprResult Parser::ParseRequiresExpression() {
   assert(Tok.is(tok::kw_requires) && "Expected 'requires' keyword");
   SourceLocation RequiresKWLoc = ConsumeToken(); // Consume 'requires'
 
-  // C++2a [expr.prim.req]p2
-  // Expressions appearing within a requirement-body are unevaluated operands.
-  EnterExpressionEvaluationContext Ctx(
-      Actions, Sema::ExpressionEvaluationContext::Unevaluated);
-
   llvm::SmallVector<ParmVarDecl *, 2> LocalParameterDecls;
   if (Tok.is(tok::l_paren)) {
     // requirement parameter list is present.
@@ -2996,6 +2991,11 @@ ExprResult Parser::ParseRequiresExpression() {
 
   // Start of requirement list
   llvm::SmallVector<Requirement *, 2> Requirements;
+
+  // C++2a [expr.prim.req]p2
+  //   Expressions appearing within a requirement-body are unevaluated operands.
+  EnterExpressionEvaluationContext Ctx(
+      Actions, Sema::ExpressionEvaluationContext::Unevaluated);
 
   if (Tok.is(tok::r_brace)) {
     // Grammar does not allow an empty body.

@@ -1655,13 +1655,10 @@ Sema::BuildDeclRefExpr(ValueDecl *D, QualType Ty, ExprValueKind VK,
       NeedToCaptureVariable(cast<VarDecl>(D), NameInfo.getLoc());
 
   if (isa<ParmVarDecl>(D) && isa<RequiresExprBodyDecl>(D->getDeclContext()) &&
-      isEvaluatableContext(*this)) {
+      !isUnevaluatedContext()) {
     // C++ [expr.prim.req.nested] p3
     //   A local parameter shall only appear as an unevaluated operand
     //   (Clause 8) within the constraint-expression.
-    //
-    // We take the liberty of disallowing these parameters in any evaluated
-    // context.
     Diag(NameInfo.getLocStart(),
          diag::err_requires_expr_parameter_referenced_in_evaluated_context)
         << D;
