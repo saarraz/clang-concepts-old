@@ -54,9 +54,9 @@ private:
   bool Satisfied : 1;
 public:
   struct SubstitutionDiagnostic {
-      std::string SubstitutedEntity;
-      SourceLocation DiagLoc;
-      std::string DiagMessage;
+    std::string SubstitutedEntity;
+    SourceLocation DiagLoc;
+    std::string DiagMessage;
   };
 
   Requirement(RequirementKind Kind, bool IsDependent,
