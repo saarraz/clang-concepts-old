@@ -5665,7 +5665,7 @@ QualType Sema::matchTypeByDeduction(TemplateParameterList *TemplateParams,
   OriginalCallArgs.push_back(OriginalCallArg(ParamType,
                                              /*DecomposedParam=*/false,
                                              /*ArgIdx=*/0, Arg->getType()));
-  TemplateDeductionInfo Info{SourceLocation()};
+  TemplateDeductionInfo Info{SourceLocation(), TemplateParams->getDepth()};
   auto Result = ::DeduceTemplateArgumentsFromCallArgument(*this, TemplateParams,
       /*FirstInnerIndex=*/0, ParamType, Arg, Info, Deduced,  OriginalCallArgs,
       /*DecomposedParam=*/false, /*ArgIdx=*/0, /*TDF=*/0);
