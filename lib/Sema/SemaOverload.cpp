@@ -7030,6 +7030,16 @@ Sema::AddConversionCandidate(CXXConversionDecl *Conversion,
     Candidate.DeductionFailure.Data = FailedAttr;
     return;
   }
+
+  Expr *RequiresClause = Conversion->getTrailingRequiresClause();
+  if (LangOpts.ConceptsTS && RequiresClause) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckConstraintSatisfaction(RequiresClause, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+    }
+  }
 }
 
 /// \brief Adds a conversion function template specialization

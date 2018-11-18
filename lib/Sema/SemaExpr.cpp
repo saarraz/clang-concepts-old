@@ -295,6 +295,30 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
 
   diagnoseUseOfInternalDeclInInlineFunction(*this, D, Loc);
 
+  // [expr.prim.id]p4
+  //   A program that refers explicitly or implicitly to a function with a
+  //   trailing requires-clause whose constraint-expression is not satisfied,
+  //   other than to declare it, is ill-formed. [...]
+  //
+  // See if this is a function with constraints that need to be satisfied.
+  if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+    if (Expr *RC = FD->getTrailingRequiresClause()) {
+      ConstraintSatisfaction Satisfaction;
+      bool Failed = CheckConstraintSatisfaction(RC, Satisfaction);
+      if (Failed)
+        // A diagnostic will have already been generated (non-constant
+        // constraint expression, for example)
+        return true;
+      if (!Satisfaction.IsSatisfied) {
+        Diag(Loc,
+             diag::err_reference_to_function_with_unsatisfied_constraints)
+            << D;
+        DiagnoseUnsatisfiedConstraint(Satisfaction);
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -2725,24 +2749,6 @@ static bool CheckDeclInExpr(Sema &S, SourceLocation Loc, NamedDecl *D) {
   if (isa<NamespaceDecl>(D)) {
     S.Diag(Loc, diag::err_unexpected_namespace) << D->getDeclName();
     return true;
-  }
-
-  if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-    if (Expr *RC = FD->getTrailingRequiresClause()) {
-      ConstraintSatisfaction Satisfaction;
-      bool Failed = S.CheckConstraintSatisfaction(RC, Satisfaction);
-      if (Failed)
-        // A diagnostic will have already been generated (non-constant
-        // constraint expression, for example)
-        return true;
-      if (!Satisfaction.IsSatisfied) {
-        S.Diag(Loc,
-               diag::err_reference_to_function_with_unsatisfied_constraints)
-            << D;
-        S.DiagnoseUnsatisfiedConstraint(Satisfaction);
-        return true;
-      }
-    }
   }
 
   return false;

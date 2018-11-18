@@ -2,14 +2,16 @@
 
 namespace functions
 {
-  void foo(int) requires false {} // expected-note 3{{because 'false' evaluated to false}}
+  void foo(int) requires false {}
+  // expected-note@-1 3{{because 'false' evaluated to false}}
+  // expected-note@-2 {{candidate function not viable: constraints not satisfied}}
   void bar(int) requires true {}
 
   void a(int);
   void a(double);
 
   void baz() {
-    foo(1); // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    foo(1); // expected-error{{no matching function for call to 'foo'}}
     bar(1);
     void (*p1)(int) = foo; // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
     void (*p3)(int) = bar;
