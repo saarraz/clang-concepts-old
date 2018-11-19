@@ -1033,7 +1033,8 @@ ExprRequirement::ReturnTypeRequirement::calculateSatisfaction(Sema &S,
     return SS_Satisfied;
   }
   auto *Constrained = Value.get<ConstrainedParam *>();
-  QualType MatchedType = S.matchTypeByDeduction(std::get<1>(*Constrained),
+  TemplateParameterList *TPL = std::get<1>(*Constrained);
+  QualType MatchedType = S.matchTypeByDeduction(TPL,
       std::get<0>(*Constrained)->getType().getCanonicalType(), E);
   if (MatchedType.isNull())
     return SS_DeductionFailed;
@@ -1041,8 +1042,9 @@ ExprRequirement::ReturnTypeRequirement::calculateSatisfaction(Sema &S,
   Args.push_back(TemplateArgument(MatchedType));
   TemplateArgumentList TAL(TemplateArgumentList::OnStack, Args);
   MultiLevelTemplateArgumentList MLTAL(TAL);
-  ExprResult Constraint = S.SubstExpr(
-      std::get<1>(*Constrained)->getRequiresClause(), MLTAL);
+  for (unsigned I = 0; I < TPL->getDepth(); ++I)
+    MLTAL.addOuterRetainedLevel();
+  ExprResult Constraint = S.SubstExpr(TPL->getRequiresClause(), MLTAL);
   assert(!Constraint.isInvalid() && Constraint.isUsable() &&
          "Substitution cannot fail as it is simply putting a type template "
          "argument into a concept specialization expression's parameter.");
