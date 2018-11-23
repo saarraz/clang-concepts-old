@@ -158,3 +158,16 @@ template<typename T>
 struct X { static constexpr bool a = SameSize<T>; };
 
 static_assert(X<unsigned>::a);
+
+// static_assert concept diagnostics
+template<typename T>
+concept Large = sizeof(T) > 100;
+// expected-note@-1 2{{because 'sizeof(small) > 100' (1 > 100) evaluated to false}}
+
+struct small { };
+static_assert(Large<small>);
+// expected-error@-1 {{static_assert failed}}
+// expected-note@-2 {{because 'small' does not satisfy 'Large'}}
+static_assert(Large<small>, "small isn't large");
+// expected-error@-1 {{static_assert failed "small isn't large"}}
+// expected-note@-2 {{because 'small' does not satisfy 'Large'}}

@@ -13379,7 +13379,15 @@ Decl *Sema::BuildStaticAssertDeclaration(SourceLocation StaticAssertLoc,
       std::tie(InnerCond, InnerCondDescription) =
         findFailedBooleanCondition(Converted.get(),
                                    /*AllowTopLevelCond=*/false);
-      if (InnerCond) {
+      if (InnerCond && isa<ConceptSpecializationExpr>(InnerCond)) {
+        // Drill down into concept specialization expressions to see why they
+        // weren't satisfied.
+        Diag(StaticAssertLoc, diag::err_static_assert_failed)
+          << !AssertMessage << Msg.str() << AssertExpr->getSourceRange();
+        ConstraintSatisfaction Satisfaction;
+        if (!CheckConstraintSatisfaction(InnerCond, Satisfaction))
+          DiagnoseUnsatisfiedConstraint(Satisfaction);
+      } else if (InnerCond) {
         Diag(StaticAssertLoc, diag::err_static_assert_requirement_failed)
           << InnerCondDescription << !AssertMessage
           << Msg.str() << InnerCond->getSourceRange();
