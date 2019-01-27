@@ -159,20 +159,12 @@ Parser::ParseTemplateDeclarationOrSpecialization(unsigned Context,
   ParseScopeFlags TemplateScopeFlags(this, NewFlags, isSpecialization);
 
   // Parse the actual template declaration.
-  if (!TryConsumeToken(tok::kw_concept))
-    return ParseSingleDeclarationAfterTemplate(Context,
-                                               ParsedTemplateInfo(&ParamLists,
-                                                               isSpecialization,
-                                                           LastParamListWasEmpty),
-                                               ParsingTemplateParams,
-                                               DeclEnd, AS, AccessAttrs);
-
-  return ParseConceptDefinition(Context,
-                                ParsedTemplateInfo(&ParamLists,
-                                                isSpecialization,
-                                            LastParamListWasEmpty),
-                                ParsingTemplateParams,
-                                DeclEnd, AS, AccessAttrs);
+  return ParseSingleDeclarationAfterTemplate(Context,
+                                             ParsedTemplateInfo(&ParamLists,
+                                                             isSpecialization,
+                                                         LastParamListWasEmpty),
+                                             ParsingTemplateParams,
+                                             DeclEnd, AS, AccessAttrs);
 }
 
 /// \brief Parse a single declaration that declares a template,
@@ -213,6 +205,11 @@ Parser::ParseSingleDeclarationAfterTemplate(
 
   ParsedAttributesWithRange prefixAttrs(AttrFactory);
   MaybeParseCXX11Attributes(prefixAttrs);
+
+  if (Tok.is(tok::kw_concept))
+    return ParseConceptDefinition(Context, TemplateInfo, DiagsFromTParams,
+                                  DeclEnd, AS, AccessAttrs,
+                                  prefixAttrs);
 
   if (Tok.is(tok::kw_using)) {
     auto usingDeclPtr = ParseUsingDirectiveOrDeclaration(Context, TemplateInfo, DeclEnd,
@@ -354,9 +351,13 @@ Parser::ParseConceptDefinition(unsigned Context,
                                ParsingDeclRAIIObject &DiagsFromTParams,
                                SourceLocation &DeclEnd,
                                AccessSpecifier AS,
-                               AttributeList *AccessAttrs) {
+                               AttributeList *AccessAttrs,
+                               ParsedAttributesWithRange &ConceptAttrs) {
   assert(TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate &&
          "Template information required");
+
+  assert(Tok.is(tok::kw_concept));
+  ConsumeToken();
 
   if (!Tok.is(tok::identifier)) {
     Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
@@ -380,7 +381,8 @@ Parser::ParseConceptDefinition(unsigned Context,
   Expr *ConstraintExpr = ConstraintExprResult.get();
   return Actions.ActOnConceptDefinition(getCurScope(),
                                         *TemplateInfo.TemplateParams,
-                                        Id, IdLoc, ConstraintExpr);
+                                        Id, IdLoc, ConstraintExpr,
+                                        ConceptAttrs.getList());
 }
 
 /// ParseTemplateParameters - Parses a template-parameter-list enclosed in

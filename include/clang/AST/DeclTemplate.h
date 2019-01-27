@@ -3110,6 +3110,14 @@ public:
 
 // \brief Definition of concept, not just declaration actually.
 class ConceptDecl : public TemplateDecl {
+public:
+  /// \brief The English grammar kind of this concept's name, used to produce
+  /// nicer diagnostics.
+  enum ConceptNameKind {
+    CNK_Unknown,
+    CNK_Noun,
+    CNK_Adjective
+  };
 protected:
   Expr *ConstraintExpr;
 
@@ -3118,6 +3126,7 @@ protected:
       : TemplateDecl(Concept, DC, L, Name, Params),
         ConstraintExpr(ConstraintExpr) {};
 public:
+
   static ConceptDecl *Create(ASTContext &C, DeclContext *DC,
                              SourceLocation L, DeclarationName Name,
                              TemplateParameterList *Params,
@@ -3132,6 +3141,13 @@ public:
     ConstraintExpr = CE;
   }
 
+  bool isOpaque() const {
+    return hasAttr<OpaqueConceptAttr>();
+  }
+
+  ConceptNameKind getConceptNameKind() const {
+    return CNK_Unknown;
+  }
 
   SourceRange getSourceRange() const override LLVM_READONLY {
     return SourceRange(getLocation(), getConstraintExpr()->getLocEnd());

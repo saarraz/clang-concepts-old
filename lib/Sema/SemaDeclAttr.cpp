@@ -4654,6 +4654,47 @@ static void handleXRayLogArgsAttr(Sema &S, Decl *D,
                                  Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleNounConceptAttr(Sema &S, Decl *D,
+                                      const AttributeList &Attr) {
+  IdentifierInfo *IndefiniteArticle = nullptr;
+
+  if (Attr.getNumArgs() != 0) {
+    if (!Attr.isArgIdent(0)) {
+      S.Diag(Attr.getLoc(),
+             diag::err_attribute_noun_concept_indefinite_article_invalid);
+      return;
+    }
+
+    IdentifierLoc *Parm = Attr.getArgAsIdent(0);
+
+    if (Parm && Parm->Ident->getName() != "a" &&
+        Parm->Ident->getName() != "an") {
+      S.Diag(Parm->Loc,
+             diag::err_attribute_noun_concept_indefinite_article_invalid);
+      return;
+    }
+    IndefiniteArticle = Parm->Ident;
+  }
+
+  D->addAttr(::new (S.Context)
+                 NounConceptAttr(Attr.getRange(), S.Context, IndefiniteArticle,
+                                 Attr.getAttributeSpellingListIndex()));
+}
+
+static void handleRelationConceptAttr(Sema &S, Decl *D,
+                                      const AttributeList &Attr) {
+  StringRef Prefix, Suffix;
+  if (!S.checkStringLiteralArgumentAttr(Attr, 0, Prefix))
+    return;
+
+  if (!S.checkStringLiteralArgumentAttr(Attr, 1, Suffix))
+    return;
+
+  D->addAttr(::new (S.Context)
+                 RelationConceptAttr(Attr.getRange(), S.Context, Prefix, Suffix,
+                                     Attr.getAttributeSpellingListIndex()));
+}
+
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
 //===----------------------------------------------------------------------===//
@@ -6576,6 +6617,19 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_XRayLogArgs:
     handleXRayLogArgsAttr(S, D, Attr);
+    break;
+  // Concept attributes.
+  case AttributeList::AT_OpaqueConcept:
+    handleSimpleAttribute<OpaqueConceptAttr>(S, D, Attr);
+    break;
+  case AttributeList::AT_NounConcept:
+    handleNounConceptAttr(S, D, Attr);
+    break;
+  case AttributeList::AT_AdjectiveConcept:
+    handleSimpleAttribute<AdjectiveConceptAttr>(S, D, Attr);
+    break;
+  case AttributeList::AT_RelationConcept:
+    handleRelationConceptAttr(S, D, Attr);
     break;
   }
 }

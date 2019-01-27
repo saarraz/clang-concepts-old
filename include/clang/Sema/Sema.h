@@ -6597,10 +6597,9 @@ public:
   // C++ Concepts
   //===--------------------------------------------------------------------===//
   Decl *ActOnConceptDefinition(
-      Scope *S,
-      MultiTemplateParamsArg TemplateParameterLists,
-      IdentifierInfo *Name, SourceLocation L,
-      Expr *ConstraintExpr);
+      Scope *S, MultiTemplateParamsArg TemplateParameterLists,
+      IdentifierInfo *Name, SourceLocation L, Expr *ConstraintExpr,
+      AttributeList *Attrs);
 
   RequiresExprBodyDecl *
   ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,

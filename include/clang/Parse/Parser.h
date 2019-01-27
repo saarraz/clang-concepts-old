@@ -2806,7 +2806,8 @@ private:
                          ParsingDeclRAIIObject &DiagsFromTParams,
                          SourceLocation &DeclEnd,
                          AccessSpecifier AS,
-                         AttributeList *AccessAttrs);
+                         AttributeList *AccessAttrs,
+                         ParsedAttributesWithRange &ConceptAttrs);
 
   //===--------------------------------------------------------------------===//
   // Modules

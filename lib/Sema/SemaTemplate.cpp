@@ -7847,7 +7847,7 @@ using namespace std;
 Decl *Sema::ActOnConceptDefinition(Scope *S,
                               MultiTemplateParamsArg TemplateParameterLists,
                                    IdentifierInfo *Name, SourceLocation L,
-                                   Expr *ConstraintExpr) {
+                                   Expr *ConstraintExpr, AttributeList *Attrs) {
   DeclContext *DC = CurContext;
 
   if (!DC->isFileContext()) {
@@ -7866,6 +7866,8 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
                                              ConstraintExpr);
   if (!NewDecl)
     return nullptr;
+
+  ProcessDeclAttributeList(S, NewDecl, Attrs);
 
   if (NewDecl->hasAssociatedConstraints()) {
     // C++2a [temp.concept]p4:

@@ -2423,6 +2423,12 @@ def note_concept_specialization_constraint_evaluated_to_false : Note<
   "%select{and|because}0 '%1' evaluated to false">;
 def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
   "%select{and|because}0 %1 does not satisfy %2">;
+def note_noun_concept_specialization_constraint_evaluated_to_false : Note<
+  "%select{and|because}0 %1 is not %select{an|a}2 %3">;
+def note_adjective_concept_specialization_constraint_evaluated_to_false : Note<
+  "%select{and|because}0 %1 is not %2">;
+def note_relation_concept_specialization_constraint_evaluated_to_false : Note<
+  "%select{and|because}0 %1 is not %2%3%4 %5">;
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
   "%select{and|because}0 '%1' (%2 %3 %4) evaluated to false">;
 def note_could_not_normalize_argument_substitution_failed : Note<
@@ -2708,6 +2714,9 @@ def warn_attribute_argument_n_negative : Warning<
 def err_property_function_in_objc_container : Error<
   "use of Objective-C property in function nested in Objective-C "
   "container not supported, move function outside its container">;
+
+def err_attribute_noun_concept_indefinite_article_invalid : Error<
+  "argument to noun, if provided, must be either 'a' or 'an'">;
 
 let CategoryName = "Cocoa API Issue" in {
 def warn_objc_redundant_literal_use : Warning<

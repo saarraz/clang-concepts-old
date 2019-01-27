@@ -17,6 +17,7 @@ def DocCatFunction : DocumentationCategory<"Function Attributes">;
 def DocCatVariable : DocumentationCategory<"Variable Attributes">;
 def DocCatType : DocumentationCategory<"Type Attributes">;
 def DocCatStmt : DocumentationCategory<"Statement Attributes">;
+def DocCatConcept : DocumentationCategory<"Concept Attributes">;
 // Attributes listed under the Undocumented category do not generate any public
 // documentation. Ideally, this category should be used for internal-only
 // attributes which contain no spellings.
@@ -110,6 +111,15 @@ def SharedVar : SubsetSubject<Var,
 
 def GlobalVar : SubsetSubject<Var,
                              [{S->hasGlobalStorage()}], "global variables">;
+
+def SingleArgConcept : SubsetSubject<Concept,
+                 [{S->getTemplateParameters()->getMinRequiredArguments() <= 1}],
+                                     "single argument concepts">;
+
+def MultipleArgConcept : SubsetSubject<Concept,
+                 [{S->getTemplateParameters()->getMinRequiredArguments() != 1 ||
+                   S->getTemplateParameters()->hasParameterPack()}],
+                                       "multiple argument concepts">;
 
 // FIXME: this hack is needed because DeclNodes.td defines the base Decl node
 // type to be a class, not a definition. This makes it impossible to create an
@@ -2782,4 +2792,32 @@ def InternalLinkage : InheritableAttr {
   let Spellings = [Clang<"internal_linkage">];
   let Subjects = SubjectList<[Var, Function, CXXRecord]>;
   let Documentation = [InternalLinkageDocs];
+}
+
+// Clang-specific concept attributes
+def OpaqueConcept : Attr {
+  let Spellings = [Clang<"opaque">];
+  let Subjects = SubjectList<[Concept]>;
+  let Documentation = [OpaqueConceptDocs];
+}
+
+def NounConcept : Attr {
+  let Spellings = [Clang<"noun">];
+  let Args = [IdentifierArgument<"IndefiniteArticle", /*opt=*/1>];
+  let Subjects = SubjectList<[Concept]>;
+  let Documentation = [ConceptNameKindDocs];
+}
+
+def AdjectiveConcept : Attr {
+  let Spellings = [Clang<"adjective">];
+  let Subjects = SubjectList<[SingleArgConcept]>;
+  let Documentation = [ConceptNameKindDocs];
+}
+
+def RelationConcept : Attr {
+  let Spellings = [Clang<"relation">];
+  let Args = [StringArgument<"prefix">,
+              StringArgument<"suffix">];
+  let Subjects = SubjectList<[MultipleArgConcept]>;
+  let Documentation = [ConceptNameKindDocs];
 }

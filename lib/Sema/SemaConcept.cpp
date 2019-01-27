@@ -397,20 +397,78 @@ static void diagnoseWellFormedUnsatisfiedConstraintExpr(Sema &S,
     diagnoseWellFormedUnsatisfiedConstraintExpr(S, PE->getSubExpr(), First);
     return;
   } else if (auto *CSE = dyn_cast<ConceptSpecializationExpr>(SubstExpr)) {
-    if (CSE->getTemplateArgsAsWritten()->NumTemplateArgs == 1) {
-      S.Diag(
-          CSE->getSourceRange().getBegin(),
+    auto* ArgsAsWritten = CSE->getTemplateArgsAsWritten();
+    ConceptDecl *CD = CSE->getNamedConcept();
+    if (ArgsAsWritten->NumTemplateArgs == 1) {
+      const TemplateArgument &Argument =
+          ArgsAsWritten->arguments()[0].getArgument();
+
+      if (auto *Noun = CD->getAttr<NounConceptAttr>()) {
+        IdentifierInfo *II = Noun->getIndefiniteArticle();
+        bool UseA = true;
+        if (!II) {
+          char FirstLetter =
+              static_cast<char>(std::tolower(CD->getNameAsString()[0]));
+          for (char Vowel : "aeiou")
+            if (FirstLetter == Vowel) {
+              UseA = false;
+              break;
+            }
+        } else
+          UseA = II->getName() == "a";
+        S.Diag(CSE->getSourceRange().getBegin(),
+               diag::
+                 note_noun_concept_specialization_constraint_evaluated_to_false)
+              << (int)First << Argument << (int)UseA << CD;
+      } else if (CSE->getNamedConcept()->hasAttr<AdjectiveConceptAttr>())
+        S.Diag(CSE->getSourceRange().getBegin(),
+               diag::
+            note_adjective_concept_specialization_constraint_evaluated_to_false)
+              << (int)First << Argument << CD;
+      else
+        S.Diag(CSE->getSourceRange().getBegin(),
+               diag::
+           note_single_arg_concept_specialization_constraint_evaluated_to_false)
+              << (int)First << Argument << CD;
+    } else if (ArgsAsWritten->NumTemplateArgs > 1 &&
+               CD->hasAttr<RelationConceptAttr>()) {
+      auto *Relation = CD->getAttr<RelationConceptAttr>();
+      const TemplateArgumentLoc &FirstArgLoc =
+          ArgsAsWritten->arguments()[0];
+      std::string RestOfArgs;
+      llvm::raw_string_ostream ArgsOS(RestOfArgs);
+      if (ArgsAsWritten->NumTemplateArgs > 2) {
+        ArgsOS << "<";
+        for (unsigned int I = 1; I < ArgsAsWritten->NumTemplateArgs; ++I) {
+          if (I != 1)
+            ArgsOS << ", ";
+          ArgsAsWritten->arguments()[I].getArgument()
+              .print(S.getPrintingPolicy(), ArgsOS);
+        }
+        ArgsOS << ">";
+      } else {
+        ArgsOS << "'";
+        ArgsAsWritten->arguments()[1].getArgument()
+            .print(S.getPrintingPolicy(), ArgsOS);
+        ArgsOS << "'";
+      }
+      std::string Prefix = Relation->getPrefix();
+      if (!Prefix.empty())
+        Prefix += " ";
+      std::string Suffix = Relation->getSuffix();
+      if (!Suffix.empty())
+        Suffix = " " + Suffix;
+      S.Diag(CSE->getSourceRange().getBegin(),
           diag::
-          note_single_arg_concept_specialization_constraint_evaluated_to_false)
-          << (int)First
-          << CSE->getTemplateArgsAsWritten()->arguments()[0].getArgument()
-          << CSE->getNamedConcept();
-    } else {
+             note_relation_concept_specialization_constraint_evaluated_to_false)
+          << (int)First << FirstArgLoc.getArgument() << Prefix << CD << Suffix
+          << ArgsOS.str();
+    } else
       S.Diag(SubstExpr->getSourceRange().getBegin(),
              diag::note_concept_specialization_constraint_evaluated_to_false)
           << (int)First << CSE;
-    }
-    S.DiagnoseUnsatisfiedConstraint(CSE->getSatisfaction());
+    if (!CSE->getNamedConcept()->isOpaque())
+      S.DiagnoseUnsatisfiedConstraint(CSE->getSatisfaction());
     return;
   } else if (auto *RE = dyn_cast<RequiresExpr>(SubstExpr)) {
     for (Requirement *Req : RE->getRequirements())
