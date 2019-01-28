@@ -4072,7 +4072,7 @@ def err_template_member_noparams : Error<
 def err_template_tag_noparams : Error<
   "extraneous 'template<>' in declaration of %0 %1">;
 def err_template_decl_ref : Error<
-  "cannot refer to %select{class|variable}0 template %1 without a template argument list">;
+  "cannot refer to %select{class template|variable template|concept}0 %1 without a template argument list">;
 
 // C++ Template Argument Lists
 def err_template_missing_args : Error<

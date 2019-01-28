@@ -1,7 +1,9 @@
 // RUN:  %clang_cc1 -std=c++2a -fconcepts-ts -verify %s
 
-template<typename T> concept C1 = true;
+template<typename T> concept C1 = true; // expected-note{{template is declared here}}
 static_assert(C1<int>);
+static_assert(C1);
+// expected-error@-1{{cannot refer to concept 'C1' without a template argument list}}
 
 template<typename T> concept C2 = sizeof(T) == 4;
 static_assert(C2<int>);
