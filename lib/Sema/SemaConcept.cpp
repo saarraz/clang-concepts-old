@@ -801,7 +801,7 @@ public:
                                         AtomicConstraint(E, ParameterMapping)};
 
       return fromConstraintExpr(S, CSE->getNamedConcept()->getConstraintExpr(),
-                                CSE->getNamedConcept(), Mapping);
+                                CSE->getNamedConcept(), ParameterMapping);
     }
     return NormalizedConstraint{new (S.Context)
                                     AtomicConstraint(E, ParameterMapping)};

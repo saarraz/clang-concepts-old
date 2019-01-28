@@ -66,3 +66,17 @@ void f() requires BiggerThanInt<T> { }
 
 static_assert(sizeof(f<long long, int>()));
 // expected-error@-1 {{call to 'f' is ambiguous}}
+
+template<typename T>
+concept C3 = true;
+
+template<typename T>
+concept C4 = true && C3<T>;
+
+template<typename T>
+int g() requires C3<void> { }
+
+template<typename T>
+int g() requires C4<void> { }
+
+static_assert(sizeof(g<int>()));
