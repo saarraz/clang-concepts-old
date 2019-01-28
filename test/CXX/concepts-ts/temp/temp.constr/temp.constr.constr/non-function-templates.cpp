@@ -90,3 +90,11 @@ struct D { };
 
 static_assert(C<int>{}); // expected-note{{while checking constraint satisfaction for template 'C<int>' required here}}
 static_assert(D<int>{}); // expected-note{{while checking constraint satisfaction for template 'D<int>' required here}}
+
+template<typename T>
+struct dummy {
+    template<typename U>
+        requires sizeof(U) == 4
+    class A;
+    using type = A<int>;
+};

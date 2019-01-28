@@ -256,6 +256,8 @@ static bool CheckConstraintSatisfaction(Sema &S, TemplateDeclT *Template,
 
   MultiLevelTemplateArgumentList MLTAL;
   MLTAL.addOuterTemplateArguments(TemplateArgs);
+  for (unsigned I = 0; I < Template->getTemplateParameters()->getDepth(); ++I)
+    MLTAL.addOuterRetainedLevel();
 
   for (const Expr *ConstraintExpr : ConstraintExprs) {
     if (calculateConstraintSatisfaction(S, Template, TemplateArgs,
