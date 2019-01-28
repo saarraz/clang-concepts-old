@@ -163,8 +163,6 @@ static void AdoptTemplateParameterList(TemplateParameterList *Params,
 llvm::SmallVector<const Expr *, 3>
 TemplateParameterList::getAssociatedConstraints() const {
   llvm::SmallVector<const Expr *, 3> Constraints;
-  if (HasRequiresClause)
-    Constraints.push_back(getRequiresClause());
   if (HasConstrainedParameters) {
     for (const NamedDecl *Param : *this)
       if (const TemplateTypeParmDecl *TTP
@@ -179,6 +177,8 @@ TemplateParameterList::getAssociatedConstraints() const {
                                               ->getConstraintExpression())
         Constraints.push_back(Constraint);
   }
+  if (HasRequiresClause)
+    Constraints.push_back(getRequiresClause());
   return Constraints;
 }
 
