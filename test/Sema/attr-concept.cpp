@@ -9,11 +9,23 @@ static_assert(Large<S>);
 // expected-error@-1{{static_assert failed}}
 // expected-note@-2{{because 'S' does not satisfy 'Large'}}
 
-#include <type_traits>
 
 namespace detail {
+
   template<typename T, typename U>
-  concept SameHelper = std::is_same_v<T, U>;
+  constexpr bool is_same_v = false;
+
+  template<typename T>
+  constexpr bool is_same_v<T, T> = true;
+
+  template<typename T>
+  constexpr bool is_reference_v = false;
+
+  template<typename T>
+  constexpr bool is_reference_v<T&> = true;
+
+  template<typename T, typename U>
+  concept SameHelper = is_same_v<T, U>;
 }
 
 template<typename T, typename U>
@@ -31,7 +43,7 @@ concept BadRelation = false;
 
 template<typename T>
 [[using clang: opaque, noun]]
-concept Object = std::is_object_v<T>;
+concept Object = !detail::is_reference_v<T>;
 
 static_assert(Object<int&>);
 // expected-error@-1{{static_assert failed}}
@@ -47,11 +59,11 @@ static_assert(SmallType<int>);
 
 template<typename T>
 [[using clang: opaque, noun(an)]]
-concept SmallerType = sizeof(T) < 2;
+concept XType = sizeof(T) < 2;
 
-static_assert(SmallerType<int>);
+static_assert(XType<int>);
 // expected-error@-1{{static_assert failed}}
-// expected-note@-2{{because 'int' is not an 'SmallerType'}}
+// expected-note@-2{{because 'int' is not an 'XType'}}
 
 template<typename T>
 [[using clang: opaque, noun(ds)]]

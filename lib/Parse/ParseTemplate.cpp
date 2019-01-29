@@ -196,20 +196,29 @@ Parser::ParseSingleDeclarationAfterTemplate(
     return ParseStaticAssertDeclaration(DeclEnd);
   }
 
+  TentativeParsingAction TPA(*this);
+  ParsedAttributesWithRange prefixAttrs(AttrFactory);
+  MaybeParseCXX11Attributes(prefixAttrs);
+
+  // Try parsing a concept before a member, to emit a better diagnostic if a
+  // member concept is being attempted.
+  if (Tok.is(tok::kw_concept)) {
+    TPA.Commit();
+    return ParseConceptDefinition(Context, TemplateInfo, DiagsFromTParams,
+                                  DeclEnd, AS, AccessAttrs,
+                                  prefixAttrs);
+  }
+
   if (Context == Declarator::MemberContext) {
-    // We are parsing a member template.
+    // We are parsing a member template - revert the attribute parsing which
+    // will happen in ParseCXXClassMemberDeclaration.
+    TPA.Revert();
     ParseCXXClassMemberDeclaration(AS, AccessAttrs, TemplateInfo,
                                    &DiagsFromTParams);
     return nullptr;
   }
 
-  ParsedAttributesWithRange prefixAttrs(AttrFactory);
-  MaybeParseCXX11Attributes(prefixAttrs);
-
-  if (Tok.is(tok::kw_concept))
-    return ParseConceptDefinition(Context, TemplateInfo, DiagsFromTParams,
-                                  DeclEnd, AS, AccessAttrs,
-                                  prefixAttrs);
+  TPA.Commit();
 
   if (Tok.is(tok::kw_using)) {
     auto usingDeclPtr = ParseUsingDirectiveOrDeclaration(Context, TemplateInfo, DeclEnd,
