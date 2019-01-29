@@ -9130,20 +9130,30 @@ bool clang::isBetterOverloadCandidate(
       return Cmp == Comparison::Better;
   }
 
-  if (Cand1.Function && Cand2.Function) {
-    Expr *RC1 = Cand1.Function->getTrailingRequiresClause();
-    Expr *RC2 = Cand2.Function->getTrailingRequiresClause();
-    if (RC1 && RC2) {
-      bool AtLeastAsConstrained1 = S.IsAtLeastAsConstrained(Cand1.Function, RC1,
-                                                            Cand2.Function,
-                                                            RC2);
-      bool AtLeastAsConstrained2 = S.IsAtLeastAsConstrained(Cand2.Function, RC2,
-                                                            Cand1.Function,
-                                                            RC1);
-      if (AtLeastAsConstrained1 != AtLeastAsConstrained2)
-        return AtLeastAsConstrained1;
-    } else if (RC1 || RC2)
-      return RC1 != nullptr;
+  //   -— F1 and F2 are non-template functions with the same
+  //      parameter-type-lists, and F1 is more constrained than F2 [...],
+  if (Cand1.Function && Cand2.Function && !Cand1IsSpecialization &&
+      !Cand2IsSpecialization && Cand1.Function->hasPrototype() &&
+      Cand2.Function->hasPrototype()) {
+    auto *PT1 = cast<FunctionProtoType>(Cand1.Function->getFunctionType());
+    auto *PT2 = cast<FunctionProtoType>(Cand2.Function->getFunctionType());
+    if (PT1->getNumParams() == PT2->getNumParams() &&
+        PT1->isVariadic() == PT2->isVariadic() &&
+        S.FunctionParamTypesAreEqual(PT1, PT2)) {
+      Expr *RC1 = Cand1.Function->getTrailingRequiresClause();
+      Expr *RC2 = Cand2.Function->getTrailingRequiresClause();
+      if (RC1 && RC2) {
+        bool AtLeastAsConstrained1 = S.IsAtLeastAsConstrained(Cand1.Function, RC1,
+                                                              Cand2.Function,
+                                                              RC2);
+        bool AtLeastAsConstrained2 = S.IsAtLeastAsConstrained(Cand2.Function, RC2,
+                                                              Cand1.Function,
+                                                              RC1);
+        if (AtLeastAsConstrained1 != AtLeastAsConstrained2)
+          return AtLeastAsConstrained1;
+      } else if (RC1 || RC2)
+        return RC1 != nullptr;
+    }
   }
 
   if (S.getLangOpts().CUDA && Cand1.Function && Cand2.Function) {
