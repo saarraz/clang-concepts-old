@@ -9503,6 +9503,40 @@ void Sema::NoteOverloadCandidate(NamedDecl *Found, FunctionDecl *Fn,
   MaybeEmitInheritedConstructorNote(*this, Found);
 }
 
+template<typename CandidateIterator, typename ConstraintExtractor>
+static void MaybeDiagnoseAmbiguousConstraints(Sema &S,
+    CandidateIterator CandBegin, CandidateIterator CandEnd,
+    ConstraintExtractor Extractor) {
+  // Perhaps the ambiguity was caused by two atomic constraints that are
+  // 'identical' but not equivalent:
+  //
+  // void foo() requires sizeof(T) > 4 { } // #1
+  // void foo() requires sizeof(T) > 4 && T::value { } // #2
+  //
+  // The 'sizeof(T) > 4' constraints are seemingly equivalent and should cause
+  // #2 to subsume #1, but these constraint are not considered equivalent
+  // according to the subsumption rules because they are not the same
+  // source-level construct. This is quite confusing behavior and we should try
+  // to help the user figure out what happened.
+  for (auto I = CandBegin; I != CandEnd; ++I) {
+    auto ICand = Extractor(*I);
+    if (!ICand.first || ICand.second.empty())
+      continue;
+    for (auto J = I + 1; J != CandEnd; ++J) {
+      auto JCand = Extractor(*J);
+      if (!JCand.first || JCand.second.empty())
+        continue;
+      // The diagnostic can only happen if there are associated constraints on
+      // both sides (there needs to be some identical atomic constraint).
+      if (S.MaybeEmitAmbiguousAtomicConstraintsDiagnostic(ICand.first,
+              ICand.second, JCand.first, JCand.second))
+        // Just show the user one diagnostic, he'll probably figure it out from
+        // here.
+        return;
+    }
+  }
+}
+
 // Notes the location of all overload candidates designated through
 // OverloadedExpr
 void Sema::NoteAllOverloadCandidates(Expr *OverloadedExpr, QualType DestType,
@@ -9524,6 +9558,20 @@ void Sema::NoteAllOverloadCandidates(Expr *OverloadedExpr, QualType DestType,
       NoteOverloadCandidate(*I, Fun, DestType, TakingAddress);
     }
   }
+
+  MaybeDiagnoseAmbiguousConstraints(*this, OvlExpr->decls_begin(),
+      OvlExpr->decls_end(),
+      [] (NamedDecl *ND)
+        -> std::pair<NamedDecl *, llvm::SmallVector<const Expr *, 3>> {
+        if (FunctionTemplateDecl *FunTmpl =
+                    dyn_cast<FunctionTemplateDecl>(ND->getUnderlyingDecl())) {
+          return {ND, FunTmpl->getAssociatedConstraints()};
+        } else if (FunctionDecl *Fun
+                          = dyn_cast<FunctionDecl>(ND->getUnderlyingDecl())) {
+          return {ND, Fun->getAssociatedConstraints()};
+        }
+        return {nullptr, {}};
+      });
 }
 
 /// Diagnoses an ambiguous conversion.  The partial diagnostic is the
@@ -10642,6 +10690,7 @@ static void CompleteNonViableCandidate(Sema &S, OverloadCandidate *Cand,
   }
 }
 
+
 /// PrintOverloadCandidates - When overload resolution fails, prints
 /// diagnostic messages containing the candidates in the candidate
 /// set.
@@ -10710,8 +10759,18 @@ void OverloadCandidateSet::NoteCandidates(
     }
   }
 
-  if (I != E)
+  if (I != E) {
     S.Diag(OpLoc, diag::note_ovl_too_many_candidates) << int(E - I);
+    return;
+  }
+
+  MaybeDiagnoseAmbiguousConstraints(S, Cands.begin(), E,
+      [] (const OverloadCandidate *Cand)
+          -> std::pair<NamedDecl *, llvm::SmallVector<const Expr *, 1>> {
+        if (FunctionDecl *FD = Cand->Function)
+          return { FD, FD->getAssociatedConstraints() };
+        return { nullptr, {} };
+      });
 }
 
 static SourceLocation
@@ -10817,6 +10876,16 @@ void TemplateSpecCandidateSet::NoteCandidates(Sema &S, SourceLocation Loc) {
 
   if (I != E)
     S.Diag(Loc, diag::note_ovl_too_many_candidates) << int(E - I);
+
+  MaybeDiagnoseAmbiguousConstraints(S, Cands.begin(), E,
+      [] (const TemplateSpecCandidate *Cand)
+          -> std::pair<NamedDecl *, llvm::SmallVector<const Expr *, 3>> {
+        if (Cand->Specialization)
+          if (FunctionDecl *FD = dyn_cast<FunctionDecl>(Cand->Specialization))
+            if (TemplateDecl *TD = FD->getPrimaryTemplate())
+              return { FD, TD->getAssociatedConstraints() };
+        return { nullptr, {} };
+      });
 }
 
 // [PossiblyAFunctionType]  -->   [Return]

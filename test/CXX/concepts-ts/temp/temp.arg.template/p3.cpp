@@ -1,17 +1,22 @@
 // RUN:  %clang_cc1 -std=c++2a -fconcepts-ts -verify %s
 
 template<typename T> concept C = requires (T t) { t.f(); };
+// expected-note@-1{{and here}}
 template<typename T> concept D = C<T> && requires (T t) { t.g(); };
+template<typename T> concept F = requires (T t) { t.f(); };
+// expected-note@-1{{'requires (T t) { t.f(); }' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
 
-template<template<C> class P> struct S1 { }; // expected-note{{'P' declared here}}
+template<template<C> class P> struct S1 { }; // expected-note 2{{'P' declared here}}
 
 template<C> struct X { }; // expected-note{{'X' declared here}}
 template<D> struct Y { }; // expected-note 2{{'Y' declared here}}
 template<typename T> struct Z { };
+template<F> struct W { }; // expected-note{{'W' declared here}}
 
 S1<X> s11;
 S1<Y> s12; // expected-error{{template template argument 'Y' must not be more constrained than template template parameter 'P'}}
 S1<Z> s13;
+S1<W> s14; // expected-error{{template template argument 'W' must not be more constrained than template template parameter 'P'}}
 
 template<template<typename> class P> struct S2 { }; // expected-note 2{{'P' declared here}}
 

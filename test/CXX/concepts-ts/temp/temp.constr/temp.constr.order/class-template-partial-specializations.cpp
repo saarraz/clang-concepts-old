@@ -1,9 +1,11 @@
 // RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ -verify %s
 
 template<typename T> requires sizeof(T) >= 4
+// expected-note@-1{{'sizeof(T) >= 4' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
 class A{}; // expected-note{{template is declared here}}
 
 template<typename T> requires sizeof(T) >= 4 && sizeof(T) <= 10
+// expected-note@-1{{and here}}
 class A<T>{}; // expected-error{{class template partial specialization is not more specialized than the primary template}}
 
 template<typename T>
@@ -69,9 +71,11 @@ struct G<T...> { };
 // because they originate in two different locations in code.
 
 template<typename... T> requires C3<T...>
+// expected-note@-1{{'C3<T...>' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
 struct H { }; // expected-note {{template is declared here}}
 
 template<typename... T> requires C3<T...> && C4<int, short>
+// expected-note@-1{{and here}}
 struct H<T...> { }; // expected-error {{class template partial specialization is not more specialized than the primary template}}
 
 // Make sure atomic constraints subsume each other only if their parameter

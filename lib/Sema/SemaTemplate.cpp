@@ -3450,6 +3450,10 @@ static void checkMoreSpecializedThanPrimary(Sema &S, PartialSpecDecl *Partial) {
   }
 
   S.Diag(Template->getLocation(), diag::note_template_decl_here);
+
+  S.MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Partial,
+      Partial->getAssociatedConstraints(), Template,
+      Template->getAssociatedConstraints());
 }
 
 static void
@@ -6617,6 +6621,9 @@ bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
         Diag(Param->getLocation(), diag::note_entity_declared_at) << Param;
         Diag(Template->getLocation(), diag::note_entity_declared_at)
             << Template;
+        MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Param,
+            Params->getAssociatedConstraints(), Template,
+            Template->getAssociatedConstraints());
         return true;
       }
       return false;

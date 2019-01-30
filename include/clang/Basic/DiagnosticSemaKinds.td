@@ -2483,7 +2483,10 @@ def note_nested_requirement_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
 def note_nested_requirement_unknown_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid">;
-
+def note_ambiguous_atomic_constraints : Note<
+  "'%0' in the two declarations is not considered equivalent - move it to a "
+  "concept and reference it from here:">;
+def note_ambiguous_atomic_constraints_second : Note<"and here">;
 
 def err_template_different_associated_constraints : Error<
   "associated constraints differ in template redeclaration">;

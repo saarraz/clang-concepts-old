@@ -515,6 +515,25 @@ struct AtomicConstraint {
       const ASTTemplateArgumentListInfo *ParameterMapping = nullptr) :
       ConstraintExpr{ConstraintExpr}, ParameterMapping{ParameterMapping} {}
 
+  bool hasMatchingParameterMapping(ASTContext &C,
+                                   const AtomicConstraint &Other) const {
+    if ((!ParameterMapping) != (!Other.ParameterMapping))
+      return false;
+    if (!ParameterMapping)
+      return true;
+    if (ParameterMapping->NumTemplateArgs !=
+        Other.ParameterMapping->NumTemplateArgs)
+      return false;
+
+    for (unsigned I = 0, S = ParameterMapping->NumTemplateArgs; I < S; ++I)
+      if (!C.getCanonicalTemplateArgument(
+                ParameterMapping->arguments()[I].getArgument())
+               .structurallyEquals(C.getCanonicalTemplateArgument(
+                   Other.ParameterMapping->arguments()[I].getArgument())))
+        return false;
+    return true;
+  }
+
   bool subsumes(ASTContext &C, const AtomicConstraint &Other) const {
     // C++ [temp.constr.order] p2
     //   - an atomic constraint A subsumes another atomic constraint B
@@ -532,23 +551,7 @@ struct AtomicConstraint {
       return false;
 
     // Check that the parameter lists are identical
-    if ((!ParameterMapping) != (!Other.ParameterMapping))
-      return false;
-    if (!ParameterMapping)
-      return true;
-    if (ParameterMapping->NumTemplateArgs !=
-        Other.ParameterMapping->NumTemplateArgs)
-      return false;
-
-    for (unsigned I = 0, S = ParameterMapping->NumTemplateArgs; I < S; ++I)
-      if (!C.getCanonicalTemplateArgument(
-                ParameterMapping->arguments()[I].getArgument())
-               .structurallyEquals(C.getCanonicalTemplateArgument(
-                   Other.ParameterMapping->arguments()[I].getArgument())))
-        return false;
-
-
-    return true;
+    return hasMatchingParameterMapping(C, Other);
   }
 
   const Expr *ConstraintExpr;
@@ -894,22 +897,22 @@ static NormalForm makeDNF(const NormalizedConstraint &Normalized) {
   return Res;
 }
 
+template<typename AtomicSubsumptionEvaluator>
 static bool subsumes(Sema &S, ArrayRef<const Expr *> P,
-                     ArrayRef<const Expr *> Q) {
+                     ArrayRef<const Expr *> Q, bool &DoesSubsume,
+                     AtomicSubsumptionEvaluator E) {
   // C++ [temp.constr.order] p2
   //   In order to determine if a constraint P subsumes a constraint Q, P is
   //   transformed into disjunctive normal form, and Q is transformed into
   //   conjunctive normal form. [...]
   auto PNormalized = NormalizedConstraint::fromConstraintExprs(S, P);
   if (!PNormalized)
-    // Program is ill formed at this point.
-    return false;
+    return true;
   const NormalForm PDNF = makeDNF(*PNormalized);
 
   auto QNormalized = NormalizedConstraint::fromConstraintExprs(S, Q);
   if (!QNormalized)
-    // Program is ill formed at this point.
-    return false;
+    return true;
   const NormalForm QCNF = makeCNF(*QNormalized);
 
   // C++ [temp.constr.order] p2
@@ -926,7 +929,7 @@ static bool subsumes(Sema &S, ArrayRef<const Expr *> P,
       bool Found = false;
       for (const AtomicConstraint *Pia : Pi) {
         for (const AtomicConstraint *Qjb : Qj) {
-          if (Pia->subsumes(S.Context, *Qjb)) {
+          if (E(*Pia, *Qjb)) {
             Found = true;
             break;
           }
@@ -935,11 +938,13 @@ static bool subsumes(Sema &S, ArrayRef<const Expr *> P,
           break;
       }
       if (!Found) {
+        DoesSubsume = false;
         return false;
       }
     }
   }
-  return true;
+  DoesSubsume = true;
+  return false;
 }
 
 bool Sema::IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
@@ -952,12 +957,79 @@ bool Sema::IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
 
   std::pair<NamedDecl *, NamedDecl *> Key{D1, D2};
   auto CacheEntry = SubsumptionCache.find(Key);
-  if (CacheEntry != SubsumptionCache.end()) {
+  if (CacheEntry != SubsumptionCache.end())
     return CacheEntry->second;
-  }
-  bool Subsumes = subsumes(*this, AC1, AC2);
+
+  bool Subsumes;
+  if (subsumes(*this, AC1, AC2, Subsumes,
+        [this] (const AtomicConstraint &A, const AtomicConstraint &B) {
+          return A.subsumes(Context, B);
+        }))
+    // Program is ill-formed at this point.
+    return false;
   SubsumptionCache.try_emplace(Key, Subsumes);
   return Subsumes;
+}
+
+bool Sema::MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
+    ArrayRef<const Expr *> AC1, NamedDecl *D2, ArrayRef<const Expr *> AC2) {
+  if (AC1.empty() || AC2.empty())
+    return false;
+
+  auto NormalExprEvaluator =
+      [this] (const AtomicConstraint &A, const AtomicConstraint &B) {
+        return A.subsumes(Context, B);
+      };
+
+  const Expr *AmbiguousAtomic1 = nullptr, *AmbiguousAtomic2 = nullptr;
+  auto IdenticalExprEvaluator =
+      [&] (const AtomicConstraint &A, const AtomicConstraint &B) {
+        if (!A.hasMatchingParameterMapping(Context, B))
+          return false;
+        const Expr *EA = A.ConstraintExpr, *EB = B.ConstraintExpr;
+        if (EA == EB)
+          return true;
+
+        // Not the same source level expression - are the expressions
+        // identical?
+        llvm::FoldingSetNodeID IDA, IDB;
+        EA->Profile(IDA, Context, /*Cannonical=*/true);
+        EB->Profile(IDB, Context, /*Cannonical=*/true);
+        if (IDA != IDB)
+          return false;
+
+        AmbiguousAtomic1 = EA;
+        AmbiguousAtomic2 = EB;
+        return true;
+      };
+
+  {
+    // The subsumption checks might cause diagnostics
+    SFINAETrap Trap(*this);
+    bool Is1AtLeastAs2Normally, Is2AtLeastAs1Normally;
+    if (subsumes(*this, AC1, AC2, Is1AtLeastAs2Normally, NormalExprEvaluator))
+      return false;
+    if (subsumes(*this, AC2, AC1, Is2AtLeastAs1Normally, NormalExprEvaluator))
+      return false;
+    bool Is1AtLeastAs2, Is2AtLeastAs1;
+    if (subsumes(*this, AC1, AC2, Is1AtLeastAs2, IdenticalExprEvaluator))
+      return false;
+    if (subsumes(*this, AC2, AC1, Is2AtLeastAs1, IdenticalExprEvaluator))
+      return false;
+    if (Is1AtLeastAs2 == Is1AtLeastAs2Normally &&
+        Is2AtLeastAs1 == Is2AtLeastAs1Normally)
+      // Same result - no ambiguity was caused by identical atomic expressions.
+      return false;
+  }
+
+  // A different result! Some ambiguous atomic constraint(s) caused a difference
+  assert(AmbiguousAtomic1 && AmbiguousAtomic2);
+
+  Diag(AmbiguousAtomic1->getLocStart(), diag::note_ambiguous_atomic_constraints)
+      << const_cast<Expr *>(AmbiguousAtomic1);
+  Diag(AmbiguousAtomic2->getLocStart(),
+       diag::note_ambiguous_atomic_constraints_second);
+  return true;
 }
 
 

@@ -27,6 +27,22 @@ namespace templates
     return 'a';
   }
 
+  static_assert(is_same_v<decltype(foo(10)), int>); // expected-error {{call to 'foo' is ambiguous}}
+  static_assert(is_same_v<decltype(foo(short(10))), double>);
+
+  template<typename T>
+  void bar() requires sizeof(T) == 1 { }
+  // expected-note@-1{{and here}}
+  // expected-note@-2{{candidate function [with T = char]}}
+
+  template<typename T>
+  void bar() requires sizeof(T) == 1 && sizeof(T) >= 0 { }
+  // expected-note@-1{{'sizeof(char) == 1' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
+  // expected-note@-2{{candidate function [with T = char]}}
+
+  static_assert(is_same_v<decltype(bar<char>()), void>);
+  // expected-error@-1{{call to 'bar' is ambiguous}}
+
   template<typename T>
   constexpr int baz() requires AtLeast1<T> { // expected-note {{candidate function}}
     return 1;
@@ -37,11 +53,7 @@ namespace templates
     return 2;
   }
 
-  void bar() {
-    static_assert(is_same_v<decltype(foo(10)), int>); // expected-error {{call to 'foo' is ambiguous}}
-    static_assert(is_same_v<decltype(foo(short(10))), double>);
-    static_assert(baz<int>() == 1); // expected-error {{call to 'baz' is ambiguous}}
-  }
+  static_assert(baz<int>() == 1); // expected-error {{call to 'baz' is ambiguous}}
 }
 
 namespace non_template
@@ -68,6 +80,18 @@ namespace non_template
     return 0.0;
   }
 
+  void bar() requires sizeof(long) >= 8 { }
+  // expected-note@-1 {{candidate function}}
+  // expected-note@-2 {{and here}}
+
+  void bar() requires sizeof(long) >= 8 && sizeof(int) <= 30 { }
+  // expected-note@-1 {{candidate function}}
+  // expected-note@-2 {{'sizeof(long) >= 8' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
+
+  static_assert(is_same_v<decltype(foo()), int>);
+  static_assert(is_same_v<decltype(baz()), int>); // expected-error {{call to 'baz' is ambiguous}}
+  static_assert(is_same_v<decltype(bar()), void>); // expected-error {{call to 'bar' is ambiguous}}
+  
   constexpr int goo(int a) requires AtLeast2<int> && true {
     return 1;
   }
@@ -85,11 +109,7 @@ namespace non_template
     return 2;
   }
 
-  void bar() {
-    static_assert(is_same_v<decltype(foo()), int>);
-    static_assert(is_same_v<decltype(baz()), int>); // expected-error {{call to 'baz' is ambiguous}}
-    static_assert(goo(1) == 1);
-    static_assert(doo(2) == 1); // expected-error {{call to 'doo' is ambiguous}}
-  }
+  static_assert(goo(1) == 1);
+  static_assert(doo(2) == 1); // expected-error {{call to 'doo' is ambiguous}}
 }
 

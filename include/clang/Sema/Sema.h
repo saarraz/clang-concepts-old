@@ -5593,6 +5593,13 @@ public:
   bool IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
                               NamedDecl *D2, ArrayRef<const Expr *> AC2);
 
+  /// \brief If D1 was not at least as constrained as D2, but would've been if
+  /// a pair of atomic constraints involved had been declared in a concept and
+  /// not repeated in two separate places in code.
+  /// \returns true if such a diagnostic was emitted, false otherwise.
+  bool MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
+      ArrayRef<const Expr *> AC1, NamedDecl *D2, ArrayRef<const Expr *> AC2);
+
   /// \brief Check whether the given list of constraint expressions are
   /// satisfied (as if in a 'conjunction') given template arguments.
   /// \param ConstraintExprs a list of constraint expressions, treated as if

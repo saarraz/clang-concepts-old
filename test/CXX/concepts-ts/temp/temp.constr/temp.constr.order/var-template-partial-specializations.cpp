@@ -1,9 +1,11 @@
 // RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ -verify %s
 
 template<typename T> requires sizeof(T) >= 4
+// expected-note@-1{{'sizeof(T) >= 4' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
 bool a = false; // expected-note{{template is declared here}}
 
 template<typename T> requires sizeof(T) >= 4 && sizeof(T) <= 10
+// expected-note@-1{{and here}}
 bool a<T> = true; // expected-error{{variable template partial specialization is not more specialized than the primary template}}
 
 template<typename T>
