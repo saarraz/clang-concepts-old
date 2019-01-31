@@ -1026,9 +1026,11 @@ bool Sema::MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
   assert(AmbiguousAtomic1 && AmbiguousAtomic2);
 
   Diag(AmbiguousAtomic1->getLocStart(), diag::note_ambiguous_atomic_constraints)
-      << const_cast<Expr *>(AmbiguousAtomic1);
+      << const_cast<Expr *>(AmbiguousAtomic1)
+      << AmbiguousAtomic1->getSourceRange();
   Diag(AmbiguousAtomic2->getLocStart(),
-       diag::note_ambiguous_atomic_constraints_second);
+       diag::note_ambiguous_atomic_constraints_second)
+      << AmbiguousAtomic2->getSourceRange();
   return true;
 }
 
