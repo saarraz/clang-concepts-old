@@ -2541,9 +2541,16 @@ static Sema::TemplateDeductionResult
 CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
                                 ArrayRef<TemplateArgument> DeducedArgs,
                                 TemplateDeductionInfo& Info) {
+  TemplateArgumentList TAL(TemplateArgumentList::OnStack, DeducedArgs);
+  DeclContext *DC = Template->getDeclContext();
+  MultiLevelTemplateArgumentList MLTAL;
+  if (NamedDecl *ND = dyn_cast<NamedDecl>(DC))
+    MLTAL = S.getTemplateInstantiationArgs(ND, /*Innermost=*/&TAL);
+  else
+    MLTAL.addOuterTemplateArguments(&TAL);
   if (S.CheckConstraintSatisfaction(Template,
                                     Template->getAssociatedConstraints(),
-                                    DeducedArgs, Info.getLocation(),
+                                    MLTAL, Info.getLocation(),
                                     Info.AssociatedConstraintsSatisfaction)
       || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
     Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
@@ -3230,8 +3237,8 @@ Sema::TemplateDeductionResult Sema::FinishTemplateArgumentDeduction(
   //   ([temp.constr.decl]), those constraints are checked for satisfaction
   //   ([temp.constr.constr]). If the constraints are not satisfied, type
   //   deduction fails.
-  if (CheckInstantiatedFunctionTemplateConstraints(Info.getLocation(),
-          Specialization, Builder, Info.AssociatedConstraintsSatisfaction))
+  if (CheckFunctionConstraints(Specialization,
+                               Info.AssociatedConstraintsSatisfaction))
     return TDK_MiscellaneousDeductionFailure;
 
   if (!Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
@@ -4436,7 +4443,7 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *&Init, QualType &Result,
   QualType TemplArg = QualType(TemplParam->getTypeForDecl(), 0);
   NamedDecl *TemplParamPtr = TemplParam;
   FixedSizeTemplateParameterListStorage<1, false> TemplateParamsSt(
-      Context, Loc, Loc, TemplParamPtr, Loc, nullptr);
+      Context, Loc, Loc, TemplParamPtr, Loc, nullptr, nullptr);
 
   QualType FuncParam =
       SubstituteDeducedTypeTransform(*this, TemplArg, /*UseTypeSugar*/false)

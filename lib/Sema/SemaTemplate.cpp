@@ -2025,6 +2025,23 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
                                             NewMismatch->getLocStart() :
                                             NewParams->getTemplateLoc());
     Invalid = true;
+  } else if (OldParams && NewParams->hasAssociatedConstraints()) {
+    if (NewParams->getRequiresClause())
+      NewParams->setInheritedConstraints(OldParams);
+    for (unsigned I = 0, C = NewParams->size(); I != C; ++I) {
+      auto *NewParam = (*NewParams).getParam(I);
+      auto *OldParam = (*OldParams).getParam(I);
+      if (auto *NewTTP = dyn_cast<TemplateTypeParmDecl>(NewParam))
+        NewTTP->setInheritedConstraintExpression(
+                                          cast<TemplateTypeParmDecl>(OldParam));
+      else if (auto *NewNTTP = dyn_cast<NonTypeTemplateParmDecl>(NewParam))
+        NewNTTP->setInheritedConstraintExpression(
+                                       cast<NonTypeTemplateParmDecl>(OldParam));
+      else
+        cast<TemplateTemplateParmDecl>(NewParam)->
+            setInheritedConstraintExpression(
+                                      cast<TemplateTemplateParmDecl>(OldParam));
+    }
   }
 
   bool RemoveDefaultArguments = false;
@@ -3965,15 +3982,17 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
       break;
     }
   }
-  if (!IsInstantiationDependent)
+  if (!IsInstantiationDependent) {
+    TemplateArgumentList TempList(TemplateArgumentList::OnStack, Converted);
     if (CheckConstraintSatisfaction(NamedConcept,
                                     {NamedConcept->getConstraintExpr()},
-                                    Converted,
+                                    MultiLevelTemplateArgumentList(TempList),
                                     SourceRange(SS.isSet() ? SS.getBeginLoc() :
                                                              ConceptNameLoc,
                                                 TemplateArgs->getRAngleLoc()),
                                     Satisfaction))
       return ExprError();
+  }
 
   return ConceptSpecializationExpr::Create(Context,
       SS.isSet() ? SS.getWithLocInContext(Context) : NestedNameSpecifierLoc{},
@@ -4760,6 +4779,7 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
   // Substitute into the template parameter list of the template
   // template parameter, since previously-supplied template arguments
   // may appear within the template template parameter.
+  TemplateArgumentList TemplateArgs(TemplateArgumentList::OnStack, Converted);
   {
     // Set up a template instantiation context.
     LocalInstantiationScope Scope(*this);
@@ -4769,7 +4789,6 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
     if (Inst.isInvalid())
       return true;
 
-    TemplateArgumentList TemplateArgs(TemplateArgumentList::OnStack, Converted);
     TempParm = cast_or_null<TemplateTemplateParmDecl>(
                       SubstDecl(TempParm, CurContext,
                                 MultiLevelTemplateArgumentList(TemplateArgs)));
@@ -4794,7 +4813,7 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
 
   case TemplateArgument::Template:
   case TemplateArgument::TemplateExpansion:
-    if (CheckTemplateArgument(TempParm, Arg, ArgumentPackIndex))
+    if (CheckTemplateArgument(TempParm, Arg, ArgumentPackIndex, Converted))
       return true;
 
     Converted.push_back(Arg.getArgument());
@@ -6550,7 +6569,8 @@ static void DiagnoseTemplateParameterListArityMismatch(
 /// It returns true if an error occurred, and false otherwise.
 bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
                                  TemplateArgumentLoc &Arg,
-                                 unsigned ArgumentPackIndex) {
+                                 unsigned ArgumentPackIndex,
+                                 ArrayRef<TemplateArgument> Converted) {
   TemplateName Name = Arg.getArgument().getAsTemplateOrTemplatePattern();
   TemplateDecl *Template = Name.getAsTemplateDecl();
   if (!Template) {
@@ -6608,13 +6628,20 @@ bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
 
     if (isTemplateTemplateParameterAtLeastAsSpecializedAs(Params, Template,
                                                           Arg.getLocation())) {
+      TemplateArgumentList ParamsSoFar(TemplateArgumentList::OnStack,
+                                       Converted);
+      MultiLevelTemplateArgumentList ParamMLTAL =
+          getTemplateInstantiationArgs(Param, /*Innermost=*/&ParamsSoFar);
+      MultiLevelTemplateArgumentList ArgMLTAL =
+          getTemplateInstantiationArgs(Template);
       // C++2a[temp.func.order]p2
       //   [...] If both deductions succeed, the partial ordering selects the
       //   more constrained template as described by the rules in
       //   [temp.constr.order].
       if (!IsAtLeastAsConstrained(Param, Params->getAssociatedConstraints(),
-                                  Template,
-                                  Template->getAssociatedConstraints())) {
+                                  ParamMLTAL, Template,
+                                  Template->getAssociatedConstraints(),
+                                  ArgMLTAL)) {
         Diag(Arg.getLocation(),
              diag::err_template_template_parameter_not_at_least_as_constrained)
             << Template << Param << Arg.getSourceRange();
@@ -6622,8 +6649,8 @@ bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
         Diag(Template->getLocation(), diag::note_entity_declared_at)
             << Template;
         MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Param,
-            Params->getAssociatedConstraints(), Template,
-            Template->getAssociatedConstraints());
+            Params->getAssociatedConstraints(), ParamMLTAL, Template,
+            Template->getAssociatedConstraints(), ArgMLTAL);
         return true;
       }
       return false;

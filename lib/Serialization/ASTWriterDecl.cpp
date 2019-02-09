@@ -1553,8 +1553,14 @@ void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
 
   Expr *CE = D->getConstraintExpression();
   Record.push_back(CE != nullptr);
-  if (CE)
-    Record.AddStmt(CE);
+  if (CE) {
+    bool OwnsCE = !D->constraintExpressionWasInherited();
+    Record.push_back(OwnsCE);
+    if (OwnsCE)
+      Record.AddStmt(CE);
+    else
+      Record.AddDeclRef(D->getInheritedFromConstraintExpressionDecl());
+  }
 
   bool OwnsDefaultArg = D->hasDefaultArgument() &&
                         !D->defaultArgumentWasInherited();
@@ -1585,13 +1591,18 @@ void ASTDeclWriter::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
       
     Code = serialization::DECL_EXPANDED_NON_TYPE_TEMPLATE_PARM_PACK;
   } else {
-    // TODO: Concepts - constrained parameters.
     // Rest of NonTypeTemplateParmDecl.
     Record.push_back(D->isParameterPack());
     Expr *CE = D->getConstraintExpression();
     Record.push_back(CE != nullptr);
-    if (CE)
-      Record.AddStmt(CE);
+    if (CE) {
+      bool OwnsCE = !D->constraintExpressionWasInherited();
+      Record.push_back(OwnsCE);
+      if (OwnsCE)
+        Record.AddStmt(CE);
+      else
+        Record.AddDeclRef(D->getInheritedFromConstraintExpressionDecl());
+    }
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);
@@ -1619,13 +1630,18 @@ void ASTDeclWriter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
       Record.AddTemplateParameterList(D->getExpansionTemplateParameters(I));
     Code = serialization::DECL_EXPANDED_TEMPLATE_TEMPLATE_PARM_PACK;
   } else {
-    // TODO: Concepts - constrained parameters.
     // Rest of TemplateTemplateParmDecl.
     Record.push_back(D->isParameterPack());
     Expr *CE = D->getConstraintExpression();
     Record.push_back(CE != nullptr);
-    if (CE)
-      Record.AddStmt(CE);
+    if (CE) {
+      bool OwnsCE = !D->constraintExpressionWasInherited();
+      Record.push_back(OwnsCE);
+      if (OwnsCE)
+        Record.AddStmt(CE);
+      else
+        Record.AddDeclRef(D->getInheritedFromConstraintExpressionDecl());
+    }
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
                           !D->defaultArgumentWasInherited();
     Record.push_back(OwnsDefaultArg);

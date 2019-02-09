@@ -9,17 +9,18 @@ template<typename T>
 concept Invalid = requires { X<T>{}; };
 
 template<typename T>
-concept False = false; // expected-note{{because 'false' evaluated to false}}
+concept False = false; // expected-note 2{{because 'false' evaluated to false}}
 
 template<typename T>
 concept True = true;
 
-// TODO: Concepts: Uncomment trailing requires clauses here when we have correct substitution.
-//template<True T>
-//  requires False<T>
-//void g1() requires Invalid<T>;
-//
-//using g1i = decltype(g1<int>());
+template<True T>
+  requires False<T> // expected-note{{because 'int' does not satisfy 'False'}}
+void g1() requires Invalid<T>;
+// expected-note@-1{{candidate template ignored: constraints not satisfied [with T = int]}}
+
+using g1i = decltype(g1<int>());
+// expected-error@-1{{no matching function for call to 'g1'}}
 
 template<False T> // expected-note{{because 'int' does not satisfy 'False'}}
   requires Invalid<T>

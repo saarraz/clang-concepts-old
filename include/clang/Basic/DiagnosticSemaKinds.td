@@ -2432,8 +2432,8 @@ def note_relation_concept_specialization_constraint_evaluated_to_false : Note<
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
   "%select{and|because}0 '%1' (%2 %3 %4) evaluated to false">;
 def note_could_not_normalize_argument_substitution_failed : Note<
-  "when substituting into %0 %1. Make sure concept arguments are "
-  "valid for any substitution">;
+  "when substituting into %0. Make sure concept arguments are valid for any "
+  "substitution">;
 def err_constrained_virtual_method : Error<
   "a virtual function must not have a requires clause">;
 def err_reference_to_function_with_unsatisfied_constraints : Error<

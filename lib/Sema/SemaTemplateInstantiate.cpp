@@ -52,7 +52,7 @@ using namespace sema;
 /// used to determine the proper set of template instantiation arguments for
 /// friend function template specializations.
 MultiLevelTemplateArgumentList
-Sema::getTemplateInstantiationArgs(NamedDecl *D, 
+Sema::getTemplateInstantiationArgs(Decl *D,
                                    const TemplateArgumentList *Innermost,
                                    bool RelativeToPrimary,
                                    const FunctionDecl *Pattern) {
@@ -440,6 +440,13 @@ void Sema::InstantiatingTemplate::Clear() {
 
     Invalid = true;
   }
+}
+
+Sema::
+InstantiatingTemplate::InstantiatingTemplate(InstantiatingTemplate &&Other) :
+  SemaRef(Other.SemaRef), Invalid(Other.Invalid),
+  AlreadyInstantiating(Other.AlreadyInstantiating) {
+  Other.Invalid = true;
 }
 
 bool Sema::InstantiatingTemplate::CheckInstantiationDepth(
@@ -1754,9 +1761,25 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
                                         Req, Info, OrigTPL->getSourceRange());
     if (TPLInst.isInvalid())
       return nullptr;
+
+    // C++ [expr.prim.req.compound]p1.3.3
+    //    [...] the expression is deduced against an invented function template
+    //    F using the rules in 17.8.2.1. F is a void function template with a
+    //    single type template parameter T declared with the
+    //    constrained-parameter.
+
+    // This will not instantiate the requires clause, because in any other
+    // context where instantiating TPLs, we are required by the standard not to
+    // instantiate the requires clause, but here this TPL's constraint is
+    // in fact only formed standard-wise while checking for the satisfaction -
+    // when forming the invented template parameter F, therefore we must
+    // substitute into it here.
+
     TemplateParameterList *TPL =
         TransformTemplateParameterList(OrigTPL);
-    if (!TPL)
+    assert(TPL != nullptr);
+    ExprResult SubstConstraint = TransformExpr(OrigTPL->getRequiresClause());
+    if (SubstConstraint.isInvalid())
       TransRetReq.emplace(createSubstDiag(SemaRef, Info,
           [&] (llvm::raw_string_ostream& OS) {
               OrigTPL->getRequiresClause()->printPretty(OS, nullptr,
@@ -1764,6 +1787,7 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
           }));
     else {
       TPLInst.Clear();
+      TPL->setRequiresClause(SubstConstraint.get());
       Sema::InstantiatingTemplate TypeInst(SemaRef, SourceLocation(), Req, Info,
                                            SourceRange());
       if (TypeInst.isInvalid())
@@ -1792,39 +1816,7 @@ TemplateInstantiator::TransformExprRequirement(ExprRequirement *Req) {
 
 NestedRequirement *
 TemplateInstantiator::TransformNestedRequirement(NestedRequirement *Req) {
-  if (!Req->isDependent() && !AlwaysRebuild())
-    return Req;
-  if (Req->isSubstitutionFailure()) {
-    if (AlwaysRebuild())
-      return RebuildNestedRequirement(
-          Req->getSubstitutionDiagnostic());
-    return Req;
-  }
-  Sema::InstantiatingTemplate ReqInst(SemaRef,
-      Req->getConstraintExpr()->getLocStart(), Req,
-      Sema::InstantiatingTemplate::ConstraintsCheck{},
-      Req->getConstraintExpr()->getSourceRange());
-
-  ExprResult TransConstraint;
-  TemplateDeductionInfo Info(Req->getConstraintExpr()->getLocStart());
-  {
-    EnterExpressionEvaluationContext ContextRAII(
-        SemaRef, Sema::ExpressionEvaluationContext::ConstantEvaluated);
-    Sema::SFINAETrap Trap(SemaRef);
-    Sema::InstantiatingTemplate ConstrInst(SemaRef,
-        Req->getConstraintExpr()->getLocStart(), Req, Info,
-        Req->getConstraintExpr()->getSourceRange());
-    if (ConstrInst.isInvalid())
-      return nullptr;
-    TransConstraint = TransformExpr(Req->getConstraintExpr());
-    if (TransConstraint.isInvalid() || Trap.hasErrorOccurred())
-      return RebuildNestedRequirement(createSubstDiag(SemaRef, Info,
-          [&] (llvm::raw_string_ostream& OS) {
-              Req->getConstraintExpr()->printPretty(OS, nullptr,
-                                                    SemaRef.getPrintingPolicy());
-          }));
-  }
-  return RebuildNestedRequirement(TransConstraint.get());
+  return RebuildNestedRequirement(Req->getConstraintExpr(), TemplateArgs);
 }
 
 
@@ -2871,6 +2863,15 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
         //   of members whose definition is visible at the point of
         //   instantiation.
         if (TSK == TSK_ExplicitInstantiationDefinition && !Pattern->isDefined())
+          continue;
+
+        // C++2a [temp.explicit]p10:
+        //   [...] provided that the associated constraints, if any, of that
+        //   member are satisfied by the template arguments of the explicit
+        //   instantiation. [...]
+        ConstraintSatisfaction Satisfaction;
+        if (CheckFunctionConstraints(Function, Satisfaction) ||
+            !Satisfaction.IsSatisfied)
           continue;
 
         Function->setTemplateSpecializationKind(TSK, PointOfInstantiation);

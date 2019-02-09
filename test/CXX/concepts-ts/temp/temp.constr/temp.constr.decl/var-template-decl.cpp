@@ -15,7 +15,7 @@ int B::A = int(U());
 namespace diag {
 
 struct B {
-    template <typename T> requires bool(T()) // expected-note{{previous template declaration is here}}
+    template <typename T> requires bool(T()) // expected-note{{template is declared here}}
     static int A;
 };
 

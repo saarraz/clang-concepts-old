@@ -302,20 +302,17 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
   //
   // See if this is a function with constraints that need to be satisfied.
   if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-    if (Expr *RC = FD->getTrailingRequiresClause()) {
-      ConstraintSatisfaction Satisfaction;
-      bool Failed = CheckConstraintSatisfaction(RC, Satisfaction);
-      if (Failed)
-        // A diagnostic will have already been generated (non-constant
-        // constraint expression, for example)
-        return true;
-      if (!Satisfaction.IsSatisfied) {
-        Diag(Loc,
-             diag::err_reference_to_function_with_unsatisfied_constraints)
-            << D;
-        DiagnoseUnsatisfiedConstraint(Satisfaction);
-        return true;
-      }
+    ConstraintSatisfaction Satisfaction;
+    bool Failed = CheckFunctionConstraints(FD, Satisfaction);
+    if (Failed)
+      // A diagnostic will have already been generated (non-constant
+      // constraint expression, for example)
+      return true;
+    if (!Satisfaction.IsSatisfied) {
+      Diag(Loc,
+           diag::err_reference_to_function_with_unsatisfied_constraints) << D;
+      DiagnoseUnsatisfiedConstraint(Satisfaction);
+      return true;
     }
   }
 

@@ -35,6 +35,7 @@
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaLambda.h"
+#include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
@@ -7871,7 +7872,10 @@ Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
 }
 
 Requirement *Sema::ActOnNestedRequirement(Expr *Constraint) {
-  return new (Context) NestedRequirement(*this, Constraint);
+  if (!Constraint->isInstantiationDependent())
+    return new (Context) NestedRequirement(*this, Constraint,
+        MultiLevelTemplateArgumentList());
+  return new (Context) NestedRequirement(Constraint);
 }
 
 RequiresExprBodyDecl *

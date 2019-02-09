@@ -19,15 +19,15 @@ struct B;
 
 namespace diag {
 
-template <typename T> requires true // expected-note{{previous template declaration is here}}
+template <typename T> requires true // expected-note{{template is declared here}}
 struct A;
 template <typename T> struct A; // expected-error{{associated constraints differ in template redeclaration}}
 
-template <typename T> struct B; // expected-note{{previous template declaration is here}}
+template <typename T> struct B; // expected-note{{template is declared here}}
 template <typename T> requires true // expected-error{{associated constraints differ in template redeclaration}}
 struct B;
 
-template <typename T> requires true // expected-note{{previous template declaration is here}}
+template <typename T> requires true // expected-note{{template is declared here}}
 struct C;
 template <typename T> requires !0 // expected-error{{associated constraints differ in template redeclaration}}
 struct C;
@@ -35,7 +35,7 @@ struct C;
 template<typename T>
 concept C1 = true;
 
-template <C1 T> // expected-note{{previous template declaration is here}}
+template <C1 T> // expected-note{{template is declared here}}
 struct D;
 template <typename T> requires C1<T> // expected-error{{associated constraints differ in template redeclaration}}
 struct D;
@@ -63,10 +63,10 @@ namespace diag {
 
 template <unsigned N>
 struct TA {
-  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{previous template declaration is here}}
+  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{template is declared here}}
   struct A;
 
-  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{previous template declaration is here}}
+  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{template is declared here}}
   struct B;
 
   struct AF;

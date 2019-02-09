@@ -741,17 +741,10 @@ void ASTStmtReader::VisitRequiresExpr(RequiresExpr *E) {
         }
       } break;
       case Requirement::RK_Nested: {
-        if (bool IsSubstitutionDiagnostic = Record.readInt()) {
-          SourceLocation SubstDiagLocation = Record.readSourceLocation();
-          std::string SubstDiagMessage = Record.readString();
-          R = new (Record.getContext()) NestedRequirement(
-              readSubstitutionDiagnostic(Record));
-          break;
-        }
         Expr *E = Record.readExpr();
-        if (E->isInstantiationDependent())
+        if (/*IsDependent=*/Record.readInt()) {
           R = new (Record.getContext()) NestedRequirement(E);
-        else
+        } else
           R = new (Record.getContext()) NestedRequirement(E,
                   readConstraintSatisfaction(Record));
       } break;

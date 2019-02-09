@@ -67,7 +67,8 @@ NamedDecl *getAsNamedDecl(TemplateParameter P);
 /// derived classes.
 class TemplateParameterList final
     : private llvm::TrailingObjects<TemplateParameterList, NamedDecl *,
-                                    Expr *> {
+                                  llvm::PointerUnion<Expr *,
+                                                     TemplateParameterList *>> {
   /// The location of the 'template' keyword.
   SourceLocation TemplateLoc;
 
@@ -92,13 +93,15 @@ class TemplateParameterList final
 protected:
   TemplateParameterList(const ASTContext& C, SourceLocation TemplateLoc,
                         SourceLocation LAngleLoc, ArrayRef<NamedDecl *> Params,
-                        SourceLocation RAngleLoc, Expr *RequiresClause);
+                        SourceLocation RAngleLoc, Expr *RequiresClause,
+                        TemplateParameterList *InheritedConstraints);
 
   size_t numTrailingObjects(OverloadToken<NamedDecl *>) const {
     return NumParams;
   }
 
-  size_t numTrailingObjects(OverloadToken<Expr *>) const {
+  size_t numTrailingObjects(
+      OverloadToken<llvm::PointerUnion<Expr *, TemplateParameterList *>>) const{
     return HasRequiresClause ? 1 : 0;
   }
 
@@ -108,11 +111,10 @@ public:
   friend TrailingObjects;
 
   static TemplateParameterList *Create(const ASTContext &C,
-                                       SourceLocation TemplateLoc,
-                                       SourceLocation LAngleLoc,
-                                       ArrayRef<NamedDecl *> Params,
-                                       SourceLocation RAngleLoc,
-                                       Expr *RequiresClause);
+      SourceLocation TemplateLoc, SourceLocation LAngleLoc,
+      ArrayRef<NamedDecl *> Params, SourceLocation RAngleLoc,
+      Expr *RequiresClause,
+      TemplateParameterList *InheritedConstraints = nullptr);
 
   /// \brief Iterates through the template parameters in this list.
   using iterator = NamedDecl **;
@@ -172,14 +174,63 @@ public:
     return false;
   }
 
+  SourceLocation getTemplateLoc() const { return TemplateLoc; }
+  SourceLocation getLAngleLoc() const { return LAngleLoc; }
+  SourceLocation getRAngleLoc() const { return RAngleLoc; }
+
+  SourceRange getSourceRange() const LLVM_READONLY {
+    return SourceRange(TemplateLoc, RAngleLoc);
+  }
+
   /// \brief The constraint-expression of the associated requires-clause.
   Expr *getRequiresClause() {
-    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
+    if (!HasRequiresClause)
+      return nullptr;
+    const auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (auto *I = P.dyn_cast<TemplateParameterList *>())
+      return I->getRequiresClause();
+    return P.get<Expr *>();
   }
 
   /// \brief The constraint-expression of the associated requires-clause.
   const Expr *getRequiresClause() const {
-    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
+    if (!HasRequiresClause)
+      return nullptr;
+    const auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (auto *I = P.dyn_cast<TemplateParameterList *>())
+      return I->getRequiresClause();
+    return P.get<Expr *>();
+  }
+
+  void setRequiresClause(Expr *RC) {
+    assert(HasRequiresClause &&
+           "Can only set requires clause on TPLs that were originally created "
+           "with one.");
+    *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                           TemplateParameterList *>>() = RC;
+  }
+
+  void setInheritedConstraints(TemplateParameterList *InheritedConstraints) {
+    assert(HasRequiresClause &&
+           "Can only setInheritedConstraints when there is already a requires "
+           "clause");
+    auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    P = InheritedConstraints;
+  }
+
+  TemplateParameterList *getInheritedConstraints() {
+    return getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                 TemplateParameterList *>>()
+        ->get<TemplateParameterList *>();
+  }
+
+  bool inheritsConstraints() const {
+    return getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                 TemplateParameterList *>>()
+        ->is<TemplateParameterList *>();
   }
 
   /// \brief All associated constraints derived from this template parameter
@@ -190,15 +241,9 @@ public:
   /// conjunction ("and").
   llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const;
 
+  /// \brief Whether there are associated constraints in this template parameter
+  /// list or in any of its parameters.
   bool hasAssociatedConstraints() const;
-
-  SourceLocation getTemplateLoc() const { return TemplateLoc; }
-  SourceLocation getLAngleLoc() const { return LAngleLoc; }
-  SourceLocation getRAngleLoc() const { return RAngleLoc; }
-
-  SourceRange getSourceRange() const LLVM_READONLY {
-    return SourceRange(TemplateLoc, RAngleLoc);
-  }
 
 public:
   // FIXME: workaround for MSVC 2013; remove when no longer needed
@@ -212,9 +257,8 @@ template <size_t N, bool HasRequiresClause>
 class FixedSizeTemplateParameterListStorage
     : public TemplateParameterList::FixedSizeStorageOwner {
   typename TemplateParameterList::FixedSizeStorage<
-      NamedDecl *, Expr *>::with_counts<
-      N, HasRequiresClause ? 1u : 0u
-      >::type storage;
+      NamedDecl *, llvm::PointerUnion<Expr *, TemplateParameterList *>>::
+      with_counts<N, HasRequiresClause ? 1u : 0u>::type storage;
 
 public:
   FixedSizeTemplateParameterListStorage(const ASTContext &C,
@@ -222,12 +266,16 @@ public:
                                         SourceLocation LAngleLoc,
                                         ArrayRef<NamedDecl *> Params,
                                         SourceLocation RAngleLoc,
-                                        Expr *RequiresClause)
+                                        Expr *RequiresClause,
+                                    TemplateParameterList *InheritedConstraints)
       : FixedSizeStorageOwner(
             (assert(N == Params.size()),
-             assert(HasRequiresClause == (RequiresClause != nullptr)),
+             assert(HasRequiresClause == (RequiresClause != nullptr
+                    || (InheritedConstraints != nullptr
+                        && InheritedConstraints->HasRequiresClause))),
              new (static_cast<void *>(&storage)) TemplateParameterList(C,
-                 TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause))) {}
+                 TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause,
+                 InheritedConstraints))) {}
 };
 
 /// \brief A template argument list.
@@ -417,14 +465,6 @@ public:
     return TemplateParams;
   }
 
-  /// \brief Get the total constraint-expression associated with this template,
-  /// including constraint-expressions derived from the requires-clause,
-  /// trailing requires-clause (for functions and methods) and constrained
-  /// template parameters.
-  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const;
-
-  bool hasAssociatedConstraints() const;
-
   /// Get the underlying, templated declaration.
   NamedDecl *getTemplatedDecl() const { return TemplatedDecl; }
 
@@ -439,6 +479,14 @@ public:
     return SourceRange(getTemplateParameters()->getTemplateLoc(),
                        TemplatedDecl->getSourceRange().getEnd());
   }
+
+  /// \brief Get the total constraint-expression associated with this template,
+  /// including constraint-expressions derived from the requires-clause,
+  /// trailing requires-clause (for functions and methods) and constrained
+  /// template parameters.
+  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const;
+
+  bool hasAssociatedConstraints() const;
 
 protected:
   NamedDecl *TemplatedDecl;
@@ -1118,8 +1166,10 @@ class TemplateTypeParmDecl : public TypeDecl {
   DefArgStorage DefaultArgument;
 
   /// \brief The constraint expression introduced by this declaration (by means
-  /// of a 'constrained-parameter'.
-  Expr *ConstraintExpression = nullptr;
+  /// of a 'constrained-parameter'. or a pointer to another argument from which
+  /// we inherit the constraint expression (in case of redeclaration or
+  /// instantiation)
+  llvm::PointerUnion<TemplateTypeParmDecl *, Expr *> ConstraintExpression;
 
   TemplateTypeParmDecl(DeclContext *DC, SourceLocation KeyLoc,
                        SourceLocation IdLoc, IdentifierInfo *Id,
@@ -1200,13 +1250,32 @@ public:
   /// \brief Returns the constraint expression associated with this template
   /// parameter (if any).
   Expr *getConstraintExpression() const {
-    return ConstraintExpression;
+    if (ConstraintExpression.isNull())
+      return nullptr;
+    if (auto *Inherited =
+          ConstraintExpression.dyn_cast<TemplateTypeParmDecl *>())
+      return Inherited->getConstraintExpression();
+    return ConstraintExpression.get<Expr *>();
   }
 
   /// \brief Sets the constraint expression associated with this template
   /// parameter (if any).
   void setConstraintExpression(Expr *E) {
     ConstraintExpression = E;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setInheritedConstraintExpression(TemplateTypeParmDecl *Prev) {
+    ConstraintExpression = Prev;
+  }
+
+  TemplateTypeParmDecl *getInheritedFromConstraintExpressionDecl() const {
+    return ConstraintExpression.get<TemplateTypeParmDecl *>();
+  }
+
+  bool constraintExpressionWasInherited() const {
+    return ConstraintExpression.is<TemplateTypeParmDecl *>();
   }
 
   /// \brief Get the associated-constraints of this template parameter.
@@ -1216,8 +1285,8 @@ public:
   /// Use this instead of getConstraintExpression for concepts APIs that
   /// accept an ArrayRef of constraint expressions.
   llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
-    if (ConstraintExpression)
-      return{ConstraintExpression};
+    if (Expr *CE = getConstraintExpression())
+      return{CE};
     return{};
   }
 
@@ -1261,8 +1330,10 @@ class NonTypeTemplateParmDecl final
   unsigned NumExpandedTypes = 0;
 
   /// \brief The constraint expression introduced by this declaration (by means
-  /// of a 'constrained-parameter'.
-  Expr *ConstraintExpression = nullptr;
+  /// of a 'constrained-parameter'. or a pointer to another argument from which
+  /// we inherit the constraint expression (in case of redeclaration or
+  /// instantiation)
+  llvm::PointerUnion<NonTypeTemplateParmDecl *, Expr *> ConstraintExpression;
 
   size_t numTrailingObjects(
       OverloadToken<std::pair<QualType, TypeSourceInfo *>>) const {
@@ -1413,13 +1484,32 @@ public:
   /// \brief Returns the constraint expression associated with this template
   /// parameter (if any).
   Expr *getConstraintExpression() const {
-    return ConstraintExpression;
+    if (ConstraintExpression.isNull())
+      return nullptr;
+    if (auto *Inherited =
+          ConstraintExpression.dyn_cast<NonTypeTemplateParmDecl *>())
+      return Inherited->getConstraintExpression();
+    return ConstraintExpression.get<Expr *>();
   }
 
   /// \brief Sets the constraint expression associated with this template
   /// parameter (if any).
   void setConstraintExpression(Expr *E) {
     ConstraintExpression = E;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setInheritedConstraintExpression(NonTypeTemplateParmDecl *Prev) {
+    ConstraintExpression = Prev;
+  }
+
+  NonTypeTemplateParmDecl *getInheritedFromConstraintExpressionDecl() const {
+    return ConstraintExpression.get<NonTypeTemplateParmDecl *>();
+  }
+
+  bool constraintExpressionWasInherited() const {
+    return ConstraintExpression.is<NonTypeTemplateParmDecl *>();
   }
 
   /// \brief Get the associated-constraints of this template parameter.
@@ -1429,8 +1519,8 @@ public:
   /// Use this instead of getConstraintExpression for concepts APIs that
   /// accept an ArrayRef of constraint expressions.
   llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
-    if (ConstraintExpression)
-      return{ConstraintExpression};
+    if (Expr *CE = getConstraintExpression())
+      return{CE};
     return{};
   }
 
@@ -1468,8 +1558,10 @@ class TemplateTemplateParmDecl final
   unsigned NumExpandedParams = 0;
 
   /// \brief The constraint expression introduced by this declaration (by means
-  /// of a 'constrained-parameter'.
-  Expr *ConstraintExpression = nullptr;
+  /// of a 'constrained-parameter'. or a pointer to another argument from which
+  /// we inherit the constraint expression (in case of redeclaration or
+  /// instantiation)
+  llvm::PointerUnion<TemplateTemplateParmDecl *, Expr *> ConstraintExpression;
 
   TemplateTemplateParmDecl(DeclContext *DC, SourceLocation L,
                            unsigned D, unsigned P, bool ParameterPack,
@@ -1601,13 +1693,32 @@ public:
   /// \brief Returns the constraint expression associated with this template
   /// parameter (if any).
   Expr *getConstraintExpression() const {
-    return ConstraintExpression;
+    if (ConstraintExpression.isNull())
+      return nullptr;
+    if (auto *Inherited =
+          ConstraintExpression.dyn_cast<TemplateTemplateParmDecl *>())
+      return Inherited->getConstraintExpression();
+    return ConstraintExpression.get<Expr *>();
   }
 
   /// \brief Sets the constraint expression associated with this template
   /// parameter (if any).
   void setConstraintExpression(Expr *E) {
     ConstraintExpression = E;
+  }
+
+  /// \brief Sets the constraint expression associated with this template
+  /// parameter (if any).
+  void setInheritedConstraintExpression(TemplateTemplateParmDecl *Prev) {
+    ConstraintExpression = Prev;
+  }
+
+  TemplateTemplateParmDecl *getInheritedFromConstraintExpressionDecl() const {
+    return ConstraintExpression.get<TemplateTemplateParmDecl *>();
+  }
+
+  bool constraintExpressionWasInherited() const {
+    return ConstraintExpression.is<TemplateTemplateParmDecl *>();
   }
 
   /// \brief Get the associated-constraints of this template parameter.
@@ -1617,8 +1728,8 @@ public:
   /// Use this instead of getConstraintExpression for concepts APIs that
   /// accept an ArrayRef of constraint expressions.
   llvm::SmallVector<const Expr *, 1> getAssociatedConstraints() const {
-    if (ConstraintExpression)
-      return{ConstraintExpression};
+    if (Expr *CE = getConstraintExpression())
+      return{CE};
     return{};
   }
 
@@ -2065,9 +2176,9 @@ public:
   /// template<> template<typename T>
   /// struct X<int>::Inner<T*> { /* ... */ };
   /// \endcode
-  bool isMemberSpecialization() {
-    ClassTemplatePartialSpecializationDecl *First =
-        cast<ClassTemplatePartialSpecializationDecl>(getFirstDecl());
+  bool isMemberSpecialization() const {
+    const ClassTemplatePartialSpecializationDecl *First =
+        cast<const ClassTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getInt();
   }
 
@@ -2913,9 +3024,9 @@ public:
   /// template<> template<typename T>
   /// U* X<int>::Inner<T*> = (T*)(0) + 1;
   /// \endcode
-  bool isMemberSpecialization() {
-    VarTemplatePartialSpecializationDecl *First =
-        cast<VarTemplatePartialSpecializationDecl>(getFirstDecl());
+  bool isMemberSpecialization() const {
+    const VarTemplatePartialSpecializationDecl *First =
+        cast<const VarTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getInt();
   }
 

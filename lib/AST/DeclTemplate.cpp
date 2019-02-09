@@ -49,10 +49,12 @@ TemplateParameterList::TemplateParameterList(const ASTContext& C,
                                              SourceLocation LAngleLoc,
                                              ArrayRef<NamedDecl *> Params,
                                              SourceLocation RAngleLoc,
-                                             Expr *RequiresClause)
+                                             Expr *RequiresClause,
+                                    TemplateParameterList *InheritedConstraints)
     : TemplateLoc(TemplateLoc), LAngleLoc(LAngleLoc), RAngleLoc(RAngleLoc),
       NumParams(Params.size()), ContainsUnexpandedParameterPack(false),
-      HasRequiresClause(RequiresClause != nullptr),
+      HasRequiresClause(RequiresClause != nullptr ||
+          (InheritedConstraints && InheritedConstraints->HasRequiresClause)),
       HasConstrainedParameters(false) {
   for (unsigned Idx = 0; Idx < NumParams; ++Idx) {
     NamedDecl *P = Params[Idx];
@@ -89,9 +91,15 @@ TemplateParameterList::TemplateParameterList(const ASTContext& C,
   }
 
   if (HasRequiresClause) {
-    if (RequiresClause->containsUnexpandedParameterPack())
-      ContainsUnexpandedParameterPack = true;
-    *getTrailingObjects<Expr *>() = RequiresClause;
+    auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (InheritedConstraints)
+      P = InheritedConstraints;
+    else {
+      if (RequiresClause->containsUnexpandedParameterPack())
+        ContainsUnexpandedParameterPack = true;
+      P = RequiresClause;
+    }
   }
 }
 
@@ -99,12 +107,19 @@ TemplateParameterList *
 TemplateParameterList::Create(const ASTContext &C, SourceLocation TemplateLoc,
                               SourceLocation LAngleLoc,
                               ArrayRef<NamedDecl *> Params,
-                              SourceLocation RAngleLoc, Expr *RequiresClause) {
-  void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *, Expr *>(
-                             Params.size(), RequiresClause ? 1u : 0u),
+                              SourceLocation RAngleLoc, Expr *RequiresClause,
+                              TemplateParameterList *InheritedConstraints) {
+  assert(!RequiresClause || !InheritedConstraints);
+  void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *,
+                                          llvm::PointerUnion<Expr *,
+                                                      TemplateParameterList *>>(
+                             Params.size(), RequiresClause ||
+                           (InheritedConstraints &&
+                            InheritedConstraints->HasRequiresClause) ? 1u : 0u),
                          alignof(TemplateParameterList));
   return new (Mem) TemplateParameterList(C, TemplateLoc, LAngleLoc, Params,
-                                         RAngleLoc, RequiresClause);
+                                         RAngleLoc, RequiresClause,
+                                         InheritedConstraints);
 }
 
 unsigned TemplateParameterList::getMinRequiredArguments() const {

@@ -3008,12 +3008,15 @@ public:
   }
 
   NestedRequirement *
-  RebuildNestedRequirement(Requirement::SubstitutionDiagnostic *SubstDiag) {
-    return new (SemaRef.Context) NestedRequirement(SubstDiag);
+  RebuildNestedRequirement(Expr *Constraint,
+                           const MultiLevelTemplateArgumentList &TemplateArgs) {
+    return new (SemaRef.Context) NestedRequirement(SemaRef, Constraint,
+                                                   TemplateArgs);
   }
 
-  NestedRequirement *RebuildNestedRequirement(Expr *Constraint) {
-    return new (SemaRef.Context) NestedRequirement(SemaRef, Constraint);
+  NestedRequirement *
+  RebuildNestedRequirement(Expr *Constraint) {
+    return new (SemaRef.Context) NestedRequirement(Constraint);
   }
 
   /// \brief Build a new Objective-C boxed expression.
@@ -10754,8 +10757,7 @@ TreeTransform<Derived>::TransformRequiresExpr(RequiresExpr *E) {
 
 template<typename Derived>
 bool TreeTransform<Derived>::TransformRequiresExprRequirements(
-    ArrayRef<Requirement *> Reqs,
-    SmallVectorImpl<Requirement *> &Transformed) {
+    ArrayRef<Requirement *> Reqs, SmallVectorImpl<Requirement *> &Transformed) {
   for (Requirement *Req : Reqs) {
     Requirement *TransReq = nullptr;
     if (auto *TypeReq = dyn_cast<TypeRequirement>(Req))
@@ -10840,12 +10842,6 @@ TreeTransform<Derived>::TransformExprRequirement(ExprRequirement *Req) {
 template<typename Derived>
 NestedRequirement *
 TreeTransform<Derived>::TransformNestedRequirement(NestedRequirement *Req) {
-  if (Req->isSubstitutionFailure()) {
-    if (getDerived().AlwaysRebuild())
-      return getDerived().RebuildNestedRequirement(
-          Req->getSubstitutionDiagnostic());
-    return Req;
-  }
   ExprResult TransConstraint =
       getDerived().TransformExpr(Req->getConstraintExpr());
   if (TransConstraint.isInvalid())

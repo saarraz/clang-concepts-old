@@ -35,8 +35,8 @@ using r1i2 = r1<char>; // expected-error {{constraints not satisfied for class t
 
 template<typename... Ts> requires
 false_v<requires (Ts... ts) {requires ((sizeof(ts) == 2) && ...);}>
-// expected-note@-1 {{because 'false_v<requires (short ts, unsigned short ts) { requires (sizeof (ts) == 2) && (sizeof (ts) == 2); }>'}}
-// expected-note@-2 {{because 'false_v<requires (short ts) { requires (sizeof (ts) == 2); }>' evaluated to false}}
+// expected-note@-1 {{because 'false_v<requires (short ts, unsigned short ts) { requires ((sizeof (ts) == 2) && ...); }>'}}
+// expected-note@-2 {{because 'false_v<requires (short ts) { requires ((sizeof (ts) == 2) && ...); }>' evaluated to false}}
 struct r2 {};
 
 using r2i1 = r2<short, unsigned short>; // expected-error {{constraints not satisfied for class template 'r2' [with Ts = <short, unsigned short>]}}
@@ -231,25 +231,35 @@ namespace expr_requirement {
 
 namespace nested_requirement {
   // check that constraint expression is instantiated correctly
-  template<typename T> requires false_v<requires { requires sizeof(T) == 2; }> // expected-note{{because 'false_v<requires { requires sizeof(int) == 2; }>' evaluated to false}}
+  // (substitution doesn't actually occur at the expression level because of [expr.prim.req.nested]p1
+  template<typename T> requires false_v<requires { requires sizeof(T) == 2; }> // expected-note{{because 'false_v<requires { requires sizeof(T) == 2; }>' evaluated to false}}
   struct r1 {};
 
   using r1i = r1<int>; // expected-error{{constraints not satisfied for class template 'r1' [with T = int]}}
 
-  // substitution error occurs in expr, then expr is instantiated again.
+  // substitution occurs in expr, then expr is instantiated again.
   template<typename T>
   struct a {
-      template<typename U> requires
-      (requires { requires sizeof(T::a) == 0; }, false) // expected-note{{because 'requires { requires <<error-expression>>; } , false' evaluated to false}}
+      template<typename U, decltype(requires { requires sizeof(T) + sizeof(U) != 0; }) W>
       struct r {};
   };
 
-  using ari = a<int>::r<short>; // expected-error{{constraints not satisfied for class template 'r' [with U = short]}}
+  using ari = a<int>::r<int, true>;
+
+  // substitution error occurs in expr, then expr is instantiated again.
+  template<typename T>
+  struct b {
+      template<typename U> requires
+      (requires { requires sizeof(T::a) == 0; }, false) // expected-note{{because 'requires { requires sizeof (T::a) == 0; } , false' evaluated to false}}
+      struct r {};
+  };
+
+  using bri = b<int>::r<short>; // expected-error{{constraints not satisfied for class template 'r' [with U = short]}}
 
   // Parameter pack inside expr
   template<typename... Ts> requires
   false_v<(requires { requires sizeof(Ts) == 0; } && ...)>
-  // expected-note@-1 {{because 'false_v<requires { requires sizeof(int) == 0; } && requires { requires sizeof(short) == 0; }>' evaluated to false}}
+  // expected-note@-1 {{because 'false_v<requires { requires sizeof(Ts) == 0; } && requires { requires sizeof(Ts) == 0; }>' evaluated to false}}
   struct r2 {};
 
   using r2i = r2<int, short>; // expected-error{{constraints not satisfied for class template 'r2' [with Ts = <int, short>]}}
@@ -258,7 +268,7 @@ namespace nested_requirement {
 // Parameter pack inside multiple requirements
 template<typename... Ts> requires
 false_v<(requires { requires sizeof(Ts) == 0; sizeof(Ts); } && ...)>
-// expected-note@-1 {{because 'false_v<requires { requires sizeof(int) == 0; sizeof(Ts); } && requires { requires sizeof(short) == 0; sizeof(Ts); }>' evaluated to false}}
+// expected-note@-1 {{because 'false_v<requires { requires sizeof(Ts) == 0; sizeof(Ts); } && requires { requires sizeof(Ts) == 0; sizeof(Ts); }>' evaluated to false}}
 struct r4 {};
 
 using r4i = r4<int, short>; // expected-error{{constraints not satisfied for class template 'r4' [with Ts = <int, short>]}}

@@ -444,14 +444,10 @@ void ASTStmtWriter::VisitRequiresExpr(RequiresExpr *E) {
       auto *NestedReq = cast<NestedRequirement>(R);
       Record.push_back(Requirement::RK_Nested);
 
-      if (auto *SubstDiag =
-            NestedReq->Value.dyn_cast<Requirement::SubstitutionDiagnostic *>()){
-        addSubstitutionDiagnostic(Record, SubstDiag);
-      } else {
-        Record.AddStmt(NestedReq->Value.get<Expr *>());
-        if (!NestedReq->isDependent())
-          addConstraintSatisfaction(Record, NestedReq->Satisfaction);
-      }
+      Record.AddStmt(NestedReq->getConstraintExpr());
+      Record.push_back(NestedReq->isDependent());
+      if (!NestedReq->isDependent())
+        addConstraintSatisfaction(Record, NestedReq->Satisfaction);
     }
   }
   Record.AddSourceLocation(E->getLocEnd());

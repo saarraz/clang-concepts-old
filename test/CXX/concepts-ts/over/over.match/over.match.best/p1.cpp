@@ -37,7 +37,7 @@ namespace templates
 
   template<typename T>
   void bar() requires sizeof(T) == 1 && sizeof(T) >= 0 { }
-  // expected-note@-1{{'sizeof(char) == 1' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
+  // expected-note@-1{{'sizeof(T) == 1' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
   // expected-note@-2{{candidate function [with T = char]}}
 
   static_assert(is_same_v<decltype(bar<char>()), void>);
@@ -112,4 +112,3 @@ namespace non_template
   static_assert(goo(1) == 1);
   static_assert(doo(2) == 1); // expected-error {{call to 'doo' is ambiguous}}
 }
-

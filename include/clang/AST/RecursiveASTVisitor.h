@@ -2626,11 +2626,8 @@ DEF_TRAVERSE_STMT(RequiresExpr, {
         TRY_TO(TraverseTypeLoc(RetReq.getConstrainedParamExpectedType()
                                    ->getTypeLoc()));
       }
-    } else {
-      auto *NestedReq = cast<NestedRequirement>(Req);
-      if (!NestedReq->isSubstitutionFailure())
-        TRY_TO(TraverseStmt(NestedReq->getConstraintExpr()));
-    }
+    } else
+      TRY_TO(TraverseStmt(cast<NestedRequirement>(Req)->getConstraintExpr()));
 })
 
 // These literals (all of them) do not need any action.

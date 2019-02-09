@@ -23,6 +23,7 @@
 #include <utility>
 namespace clang {
 class ConceptSpecializationExpr;
+class MultiLevelTemplateArgumentList;
 class Sema;
 
 /// \brief The result of a constraint satisfaction check, containing the
@@ -334,46 +335,29 @@ public:
 /// \brief A requires-expression requirement which is satisfied when a general
 /// constraint expression is satisfied ('nested' requirements).
 class NestedRequirement : public Requirement {
-  llvm::PointerUnion<Expr *, SubstitutionDiagnostic *> Value;
+  Expr *ConstraintExpr;
   ConstraintSatisfaction Satisfaction;
 
 public:
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
 
-  NestedRequirement(SubstitutionDiagnostic *SubstDiag) :
-      Requirement(RK_Nested, /*Dependent=*/false,
-                  /*ContainsUnexpandedParameterPack*/false,
-                  /*Satisfied=*/false), Value(SubstDiag) {}
-
   NestedRequirement(Expr *Constraint) :
-      Requirement(RK_Nested, /*Dependent=*/true,
+      Requirement(RK_Nested, /*IsDependent=*/true,
                   Constraint->containsUnexpandedParameterPack()),
-      Value(Constraint) {
-    assert(Constraint->isInstantiationDependent() &&
-           "Nested requirement with Non-dependent constraint must be "
-           "constructed with a Sema& or a ConstraintSatisfaction object");
+      ConstraintExpr(Constraint) {
+    assert(Constraint->isInstantiationDependent() && "Non-dependent constraint "
+           "expressions must be provided along a Sema& or a precalculated "
+           "ConstraintSatisfaction");
   }
-  NestedRequirement(Sema &S, Expr *Constraint);
+  NestedRequirement(Sema &S, Expr *Constraint,
+                    const MultiLevelTemplateArgumentList &TemplateArgs);
   NestedRequirement(Expr *Constraint, ConstraintSatisfaction Satisfaction) :
       Requirement(RK_Nested, false, false, Satisfaction.IsSatisfied),
-      Value(Constraint), Satisfaction(std::move(Satisfaction)) {}
-
-  bool isSubstitutionFailure() const {
-    return Value.is<SubstitutionDiagnostic *>();
-  }
-  SubstitutionDiagnostic *getSubstitutionDiagnostic() const {
-    assert(isSubstitutionFailure() &&
-           "getSubstitutionDiagnostic() may not be called when there was no "
-           "substitution failure.");
-    return Value.get<SubstitutionDiagnostic *>();
-  }
+      ConstraintExpr(Constraint), Satisfaction(std::move(Satisfaction)) {}
 
   Expr *getConstraintExpr() const {
-    assert(!isSubstitutionFailure() && "getConstraintExpr() may not be called "
-                                       "on nested requirements with "
-                                       "substitution failures.");
-    return Value.get<Expr *>();
+    return ConstraintExpr;
   }
 
   void Diagnose(Sema &S, bool First) const override;
