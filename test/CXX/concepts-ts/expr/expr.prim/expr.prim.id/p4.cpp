@@ -26,12 +26,19 @@ namespace methods
   struct A {
     static void foo(int) requires sizeof(T) == 1 {} // expected-note 3{{because 'sizeof(char [2]) == 1' (2 == 1) evaluated to false}}
     static void bar(int) requires sizeof(T) == 2 {} // expected-note 3{{because 'sizeof(char) == 2' (1 == 2) evaluated to false}}
+    template<typename U>
+    static void baz(int) requires sizeof(T) == 2 {
+      struct { static void goo() requires (sizeof(T) > sizeof(U)) {} } a;
+      // expected-note@-1{{because 'sizeof(short) > sizeof(int)' (2 > 4) evaluated to false}}
+      a.goo();
+      // expected-error@-1{{invalid reference to function 'goo': constraints not satisfied}}
+    }
   };
 
   void baz() {
     A<char>::foo(1);
     A<char>::bar(1); // expected-error{{invalid reference to function 'bar' - constraints not satisfied}}
-    A<char[2]>::foo(1); // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    A<short>::baz<int>(1); // expected-note{{in instantiation of function template specialization 'methods::A<short>::baz<int>' requested here}}
     A<char[2]>::bar(1);
     void (*p1)(int) = A<char>::foo;
     void (*p2)(int) = A<char>::bar; // expected-error{{invalid reference to function 'bar' - constraints not satisfied}}

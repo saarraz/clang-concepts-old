@@ -1948,15 +1948,6 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  if (TrailingRequiresClause) {
-    ExprResult SubstRC = SemaRef.SubstExpr(TrailingRequiresClause,
-                                           TemplateArgs);
-    if (!SubstRC.isUsable() || SubstRC.isInvalid())
-      return nullptr;
-    TrailingRequiresClause = SubstRC.get();
-    if (!SemaRef.CheckConstraintExpression(TrailingRequiresClause))
-      return nullptr;
-  }
 
   DeclContext *DC = Owner;
   if (isFriend) {
@@ -3688,19 +3679,33 @@ bool Sema::CheckFunctionConstraints(FunctionDecl *Decl,
         cast<TemplateDecl>(Template)->getAssociatedConstraints();
   } else {
     AssociatedConstraints = Decl->getAssociatedConstraints();
-    if (!AssociatedConstraints.empty())
-      if (auto MemberDecl = Decl->getInstantiatedFromMemberFunction()) {
-        DeclContext *DC = MemberDecl->getParent();
-        while (!DC->isFileContext())
-          if (!isa<TemplateDecl>(DC) &&
-              !isa<VarTemplatePartialSpecializationDecl>(DC) &&
-              !isa<ClassTemplatePartialSpecializationDecl>(DC))
-            DC = DC->getLexicalParent();
-          else
+    if (!AssociatedConstraints.empty()) {
+      DeclContext *DC = Decl->getParent();
+      while (!DC->isFileContext()) {
+        if (auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(DC)) {
+          if (Spec->getSpecializationKind() == TSK_ExplicitSpecialization &&
+              !isa<ClassTemplatePartialSpecializationDecl>(Spec))
             break;
-        if (!DC->isFileContext())
-          Template = cast<NamedDecl>(DC);
+          if (!isa<ClassTemplatePartialSpecializationDecl>(Spec)) {
+            Template = Spec->getSpecializedTemplate();
+          } else {
+            Template = Spec;
+          }
+          break;
+        }
+        if (auto *Record = dyn_cast<CXXRecordDecl>(DC))
+          if (auto *ClassTemplate = Record->getDescribedClassTemplate()) {
+            Template = ClassTemplate;
+            break;
+          }
+        if (auto *Function = dyn_cast<FunctionDecl>(DC))
+          if (auto *FunctionTemplate = Function->getDescribedTemplate()) {
+            Template = FunctionTemplate;
+            break;
+          }
+        DC = DC->getParent();
       }
+    }
   }
 
   if (AssociatedConstraints.empty()) {
