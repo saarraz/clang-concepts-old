@@ -7498,7 +7498,14 @@ struct FindOverriddenMethod {
          Path.Decls = Path.Decls.slice(1)) {
       NamedDecl *D = Path.Decls.front();
       if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D)) {
-        if (MD->isVirtual() && !S->IsOverload(Method, MD, false))
+        if (MD->isVirtual() &&
+            !S->IsOverload(
+                Method, MD, /*UseMemberUsingDeclRules=*/false,
+                /*ConsiderCudaAttrs=*/true,
+                // C++2a [class.virtual]p2 does not currently consider requires
+                // clauses when overriding - this is perhaps a wording defect
+                // that might get fixed someday.
+                /*ConsiderRequiresClauses=*/false))
           return true;
       }
     }
@@ -7847,10 +7854,10 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
 
   bool isExplicit = D.getDeclSpec().isExplicitSpecified();
   bool isConstexpr = D.getDeclSpec().isConstexprSpecified();
-  Expr *TrailingRequiresClause = D.isFunctionDeclarator()
-                                 && D.hasTrailingRequiresClause() ?
-                             D.getFunctionTypeInfo().getTrailingRequiresClause()
-                                 : nullptr;
+  Expr *TrailingRequiresClause =
+      (D.isFunctionDeclarator() && D.hasTrailingRequiresClause())
+          ? D.getFunctionTypeInfo().getTrailingRequiresClause()
+          : nullptr;
 
   // Check that the return type is not an abstract class type.
   // For record types, this is done by the AbstractClassUsageDiagnoser once
@@ -8376,11 +8383,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         Diag(D.getDeclSpec().getVirtualSpecLoc(),
              diag::err_virtual_member_function_template)
           << FixItHint::CreateRemoval(D.getDeclSpec().getVirtualSpecLoc());
-      } else if (D.hasTrailingRequiresClause()) {
-        // C++2a [class.virtual]p6
-        // A virtual method shall not have a requires-clause.
-        Diag(NewFD->getTrailingRequiresClause()->getLocStart(),
-             diag::err_constrained_virtual_method);
       } else {
         // Okay: Add virtual to the method.
         NewFD->setVirtualAsWritten(true);
@@ -9379,6 +9381,17 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
           }
         }
       }
+      if (Method->isVirtual() &&
+          (NewFD->getTrailingRequiresClause() ||
+           std::any_of(Method->overridden_methods().begin(),
+                       Method->overridden_methods().end(),
+                       [](const CXXMethodDecl *M) {
+                         return M->getTrailingRequiresClause() != nullptr;
+                       })))
+        // C++2a [class.virtual]p6
+        // A virtual method shall not have a requires-clause.
+        Diag(NewFD->getTrailingRequiresClause()->getLocStart(),
+             diag::err_constrained_virtual_method);
 
       if (Method->isStatic())
         checkThisInStaticMemberFunctionType(Method);

@@ -20,7 +20,7 @@ struct S1 {
 void foo() {
   S1().foo();
   S1().bar();
-  // expected-error@-1 {{invalid reference to function 'bar' - constraints not satisfied}}
+  // expected-error@-1 {{invalid reference to function 'bar': constraints not satisfied}}
   (void) static_cast<bool>(S1());
   (void) static_cast<S2>(S1());
   // expected-error@-1 {{no matching conversion for static_cast from 'S1' to 'S2'}}

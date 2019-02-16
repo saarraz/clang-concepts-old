@@ -1054,7 +1054,8 @@ Sema::CheckOverload(Scope *S, FunctionDecl *New, const LookupResult &Old,
 }
 
 bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
-                      bool UseMemberUsingDeclRules, bool ConsiderCudaAttrs) {
+                      bool UseMemberUsingDeclRules, bool ConsiderCudaAttrs,
+                      bool ConsiderRequiresClauses) {
   // C++ [basic.start.main]p2: This function shall not be overloaded.
   if (New->isMain())
     return false;
@@ -1190,34 +1191,36 @@ bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
   if (getLangOpts().CUDA && ConsiderCudaAttrs) {
     // Don't allow overloading of destructors.  (In theory we could, but it
     // would be a giant change to clang.)
-    if (isa<CXXDestructorDecl>(New))
-      return false;
+    if (!isa<CXXDestructorDecl>(New)) {
+      CUDAFunctionTarget NewTarget = IdentifyCUDATarget(New),
+                         OldTarget = IdentifyCUDATarget(Old);
+      if (NewTarget != CFT_InvalidTarget) {
+        assert((OldTarget != CFT_InvalidTarget) &&
+               "Unexpected invalid target.");
 
-    CUDAFunctionTarget NewTarget = IdentifyCUDATarget(New),
-                       OldTarget = IdentifyCUDATarget(Old);
-    if (NewTarget == CFT_InvalidTarget)
-      return false;
-
-    assert((OldTarget != CFT_InvalidTarget) && "Unexpected invalid target.");
-
-    // Allow overloading of functions with same signature and different CUDA
-    // target attributes.
-    return NewTarget != OldTarget;
+        // Allow overloading of functions with same signature and different CUDA
+        // target attributes.
+        if (NewTarget != OldTarget)
+          return true;
+      }
+    }
   }
 
-  Expr *NewRC = New->getTrailingRequiresClause(),
-       *OldRC = Old->getTrailingRequiresClause();
-  if ((NewRC != nullptr) != (OldRC != nullptr))
-    // RC are most certainly different - these are overloads.
-    return true;
-
-  if (NewRC) {
-    llvm::FoldingSetNodeID NewID, OldID;
-    NewRC->Profile(NewID, Context, /*Canonical=*/true);
-    OldRC->Profile(OldID, Context, /*Canonical=*/true);
-    if (NewID != OldID)
-      // RCs are not equivalent - these are overloads.
+  if (ConsiderRequiresClauses) {
+    Expr *NewRC = New->getTrailingRequiresClause(),
+         *OldRC = Old->getTrailingRequiresClause();
+    if ((NewRC != nullptr) != (OldRC != nullptr))
+      // RC are most certainly different - these are overloads.
       return true;
+
+    if (NewRC) {
+      llvm::FoldingSetNodeID NewID, OldID;
+      NewRC->Profile(NewID, Context, /*Canonical=*/true);
+      OldRC->Profile(OldID, Context, /*Canonical=*/true);
+      if (NewID != OldID)
+        // RCs are not equivalent - these are overloads.
+        return true;
+    }
   }
 
   // The signatures match; this is not an overload.

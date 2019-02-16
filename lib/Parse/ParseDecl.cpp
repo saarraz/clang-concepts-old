@@ -6099,7 +6099,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         ParseTrailingReturn();
       }
       // Parse trailing requires-clause[opt].
-      if (getLangOpts().ConceptsTS && Tok.is(tok::kw_requires)) {
+      if (Tok.is(tok::kw_requires)) {
         LocalEndLoc = Tok.getLocation();
         ConsumeToken();
 
@@ -6110,8 +6110,8 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
             Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
         Diags.setSuppressAllDiagnostics(false);
 
-        if (!Trap.hasErrorOccurred() && TrailingRequiresClause.isUsable()
-            && !TrailingRequiresClause.isInvalid()) {
+        if (!Trap.hasErrorOccurred() && TrailingRequiresClause.isUsable() &&
+            !TrailingRequiresClause.isInvalid()) {
           TPA.Commit();
           EndLoc = TrailingRequiresClause.get()->getLocEnd();
 

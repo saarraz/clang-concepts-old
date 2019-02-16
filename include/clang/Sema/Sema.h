@@ -2495,7 +2495,8 @@ public:
                              NamedDecl *&OldDecl,
                              bool IsForUsingDecl);
   bool IsOverload(FunctionDecl *New, FunctionDecl *Old, bool IsForUsingDecl,
-                  bool ConsiderCudaAttrs = true);
+                  bool ConsiderCudaAttrs = true,
+                  bool ConsiderRequiresClauses = true);
 
   /// \brief Checks availability of the function depending on the current
   /// function context.Inside an unavailable function,unavailability is ignored.

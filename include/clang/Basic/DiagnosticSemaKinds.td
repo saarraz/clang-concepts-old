@@ -2435,9 +2435,9 @@ def note_could_not_normalize_argument_substitution_failed : Note<
   "when substituting into %0. Make sure concept arguments are valid for any "
   "substitution">;
 def err_constrained_virtual_method : Error<
-  "a virtual function must not have a requires clause">;
+  "virtual function cannot have a requires clause">;
 def err_reference_to_function_with_unsatisfied_constraints : Error<
-  "invalid reference to function %0 - constraints not satisfied">;
+  "invalid reference to function %0: constraints not satisfied">;
 def note_requires_expr_ill_formed_expr : Note<
   "expression is invalid: %0">;
 def note_requires_expr_no_implicit_conversion : Note<

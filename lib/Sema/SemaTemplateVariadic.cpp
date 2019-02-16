@@ -881,8 +881,8 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
 	      return true;
       }
 
-      if (Chunk.Fun.hasTrailingRequiresClause()
-          &&Chunk.Fun.TrailingRequiresClause->containsUnexpandedParameterPack())
+      if (Chunk.Fun.hasTrailingRequiresClause() &&
+          Chunk.Fun.TrailingRequiresClause->containsUnexpandedParameterPack())
           return true;
       break;
 

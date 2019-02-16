@@ -763,6 +763,8 @@ void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
     DeclaratorDecl::ExtInfo *Info
         = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     ReadQualifierInfo(*Info);
+    if (Record.readInt()) // has TrailingRequiresClause
+      Info->TrailingRequiresClause = cast<Expr>(Record.readStmt());
     DD->DeclInfo = Info;
   }
 }
@@ -796,9 +798,6 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->IsLateTemplateParsed = Record.readInt();
   FD->setCachedLinkage(Linkage(Record.readInt()));
   FD->EndRangeLoc = ReadSourceLocation();
-  bool HasTrailingRequiresClause = Record.readInt();
-  if (HasTrailingRequiresClause)
-    FD->TrailingRequiresClause = Record.readExpr();
 
   switch ((FunctionDecl::TemplatedKind)Record.readInt()) {
   case FunctionDecl::TK_NonTemplate:

@@ -506,8 +506,13 @@ void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   VisitValueDecl(D);
   Record.AddSourceLocation(D->getInnerLocStart());
   Record.push_back(D->hasExtInfo());
-  if (D->hasExtInfo())
-    Record.AddQualifierInfo(*D->getExtInfo());
+  if (D->hasExtInfo()) {
+    DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
+    Record.AddQualifierInfo(*Info);
+    Record.push_back(Info->TrailingRequiresClause ? 1 : 0);
+    if (Info->TrailingRequiresClause)
+      Record.AddStmt(Info->TrailingRequiresClause);
+  }
 }
 
 void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
@@ -538,10 +543,6 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->IsLateTemplateParsed);
   Record.push_back(D->getLinkageInternal());
   Record.AddSourceLocation(D->getLocEnd());
-  Expr *RC = D->getTrailingRequiresClause();
-  Record.push_back(RC != nullptr);
-  if (RC)
-    Record.AddStmt(RC);
 
   Record.push_back(D->getTemplatedKind());
   switch (D->getTemplatedKind()) {

@@ -13,9 +13,9 @@ namespace functions
   void baz() {
     foo(1); // expected-error{{no matching function for call to 'foo'}}
     bar(1);
-    void (*p1)(int) = foo; // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    void (*p1)(int) = foo; // expected-error{{invalid reference to function 'foo': constraints not satisfied}}
     void (*p3)(int) = bar;
-    decltype(foo)* a1 = nullptr; // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    decltype(foo)* a1 = nullptr; // expected-error{{invalid reference to function 'foo': constraints not satisfied}}
     decltype(bar)* a2 = nullptr;
   }
 }
@@ -37,16 +37,17 @@ namespace methods
 
   void baz() {
     A<char>::foo(1);
-    A<char>::bar(1); // expected-error{{invalid reference to function 'bar' - constraints not satisfied}}
+    A<char>::bar(1); // expected-error{{invalid reference to function 'bar': constraints not satisfied}}
     A<short>::baz<int>(1); // expected-note{{in instantiation of function template specialization 'methods::A<short>::baz<int>' requested here}}
+    A<char[2]>::foo(1); // expected-error{{invalid reference to function 'foo': constraints not satisfied}}
     A<char[2]>::bar(1);
     void (*p1)(int) = A<char>::foo;
-    void (*p2)(int) = A<char>::bar; // expected-error{{invalid reference to function 'bar' - constraints not satisfied}}
-    void (*p3)(int) = A<char[2]>::foo; // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    void (*p2)(int) = A<char>::bar; // expected-error{{invalid reference to function 'bar': constraints not satisfied}}
+    void (*p3)(int) = A<char[2]>::foo; // expected-error{{invalid reference to function 'foo': constraints not satisfied}}
     void (*p4)(int) = A<char[2]>::bar;
     decltype(A<char>::foo)* a1 = nullptr;
-    decltype(A<char>::bar)* a2 = nullptr; // expected-error{{invalid reference to function 'bar' - constraints not satisfied}}
-    decltype(A<char[2]>::foo)* a3 = nullptr; // expected-error{{invalid reference to function 'foo' - constraints not satisfied}}
+    decltype(A<char>::bar)* a2 = nullptr; // expected-error{{invalid reference to function 'bar': constraints not satisfied}}
+    decltype(A<char[2]>::foo)* a3 = nullptr; // expected-error{{invalid reference to function 'foo': constraints not satisfied}}
     decltype(A<char[2]>::bar)* a4 = nullptr;
   }
 }
@@ -59,7 +60,7 @@ namespace operators
   };
 
   void baz() {
-    auto* x = &A<int>::operator-; // expected-error{{invalid reference to function 'operator-' - constraints not satisfied}}
+    auto* x = &A<int>::operator-; // expected-error{{invalid reference to function 'operator-': constraints not satisfied}}
     auto y = &A<char>::operator-;
   }
 }
