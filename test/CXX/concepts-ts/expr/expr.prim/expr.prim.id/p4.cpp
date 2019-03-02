@@ -24,10 +24,10 @@ namespace methods
 {
   template<typename T>
   struct A {
-    static void foo(int) requires sizeof(T) == 1 {} // expected-note 3{{because 'sizeof(char [2]) == 1' (2 == 1) evaluated to false}}
-    static void bar(int) requires sizeof(T) == 2 {} // expected-note 3{{because 'sizeof(char) == 2' (1 == 2) evaluated to false}}
+    static void foo(int) requires (sizeof(T) == 1) {} // expected-note 3{{because 'sizeof(char [2]) == 1' (2 == 1) evaluated to false}}
+    static void bar(int) requires (sizeof(T) == 2) {} // expected-note 3{{because 'sizeof(char) == 2' (1 == 2) evaluated to false}}
     template<typename U>
-    static void baz(int) requires sizeof(T) == 2 {
+    static void baz(int) requires (sizeof(T) == 2) {
       struct { static void goo() requires (sizeof(T) > sizeof(U)) {} } a;
       // expected-note@-1{{because 'sizeof(short) > sizeof(int)' (2 > 4) evaluated to false}}
       a.goo();
@@ -56,7 +56,7 @@ namespace operators
 {
   template<typename T>
   struct A {
-    A<T> operator-(A<T> b) requires sizeof(T) == 1 { return b; } // expected-note{{because 'sizeof(int) == 1' (4 == 1) evaluated to false}}
+    A<T> operator-(A<T> b) requires (sizeof(T) == 1) { return b; } // expected-note{{because 'sizeof(int) == 1' (4 == 1) evaluated to false}}
   };
 
   void baz() {

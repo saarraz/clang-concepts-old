@@ -2,15 +2,15 @@
 
 template<typename T>
 class A {
-  virtual void f1() requires sizeof(T) == 0;
+  virtual void f1() requires (sizeof(T) == 0);
   // expected-error@-1{{virtual function cannot have a requires clause}}
-  virtual void f2() requires sizeof(T) == 1;
+  virtual void f2() requires (sizeof(T) == 1);
   // expected-error@-1{{virtual function cannot have a requires clause}}
 };
 
 template<typename T>
 class B : A<T> {
-  virtual void f1() requires sizeof(T) == 0 override {}
+  virtual void f1() requires (sizeof(T) == 0) override {}
   // expected-error@-1{{virtual function cannot have a requires clause}}
 };
 

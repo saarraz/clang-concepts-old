@@ -152,7 +152,7 @@ bool r47 = requires { 0 int; };
 bool r48 = requires { requires true };
 // expected-error@-1 {{expected ';' at end of requirement}}
 
-bool r49 = requires (bool b) { requires sizeof(b) == 1; };
+bool r49 = requires (bool b) { requires (sizeof(b) == 1); };
 
 bool r50 = requires { { 0 } -> auto&&; };
 // expected-error@-1 {{'auto' not allowed in expression type requirement}}

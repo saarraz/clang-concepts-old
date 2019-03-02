@@ -2925,7 +2925,7 @@ Parser::ParseCXXDeleteExpression(bool UseGlobal, SourceLocation Start) {
       return ExprError();
   }
 
-  ExprResult Operand(ParseCastExpression(false));
+  ExprResult Operand(ParseCastExpression(AnyCastExpr));
   if (Operand.isInvalid())
     return Operand;
 
@@ -3510,7 +3510,7 @@ Parser::ParseCXXAmbiguousParenExpression(ParenParseOption &ExprType,
       // If it is not a cast-expression, NotCastExpr will be true and no token
       // will be consumed.
       ColonProt.restore();
-      Result = ParseCastExpression(false/*isUnaryExpression*/,
+      Result = ParseCastExpression(AnyCastExpr,
                                    false/*isAddressofOperand*/,
                                    NotCastExpr,
                                    // type-id has priority.

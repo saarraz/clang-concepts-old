@@ -6060,6 +6060,16 @@ Sema::AddOverloadCandidate(FunctionDecl *Function,
         return;
       }
 
+  if (LangOpts.ConceptsTS) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckFunctionConstraints(Function, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+      return;
+    }
+  }
+
   // Determine the implicit conversion sequences for each of the
   // arguments.
   for (unsigned ArgIdx = 0; ArgIdx < Args.size(); ++ArgIdx) {
@@ -6103,15 +6113,6 @@ Sema::AddOverloadCandidate(FunctionDecl *Function,
     Candidate.Viable = false;
     Candidate.FailureKind = ovl_fail_ext_disabled;
     return;
-  }
-
-  if (LangOpts.ConceptsTS) {
-    ConstraintSatisfaction Satisfaction;
-    if (CheckFunctionConstraints(Function, Satisfaction) ||
-        !Satisfaction.IsSatisfied) {
-      Candidate.Viable = false;
-      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
-    }
   }
 }
 
@@ -6581,6 +6582,16 @@ Sema::AddMethodCandidate(CXXMethodDecl *Method, DeclAccessPair FoundDecl,
         return;
       }
 
+  if (LangOpts.ConceptsTS) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckFunctionConstraints(Method, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+      return;
+    }
+  }
+
   // Determine the implicit conversion sequences for each of the
   // arguments.
   for (unsigned ArgIdx = 0; ArgIdx < Args.size(); ++ArgIdx) {
@@ -6617,16 +6628,6 @@ Sema::AddMethodCandidate(CXXMethodDecl *Method, DeclAccessPair FoundDecl,
     Candidate.FailureKind = ovl_fail_enable_if;
     Candidate.DeductionFailure.Data = FailedAttr;
     return;
-  }
-
-  if (LangOpts.ConceptsTS) {
-    ConstraintSatisfaction Satisfaction;
-    if (CheckFunctionConstraints(Method, Satisfaction) ||
-        !Satisfaction.IsSatisfied) {
-      Candidate.Viable = false;
-      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
-      return;
-    }
   }
 }
 
@@ -6938,6 +6939,16 @@ Sema::AddConversionCandidate(CXXConversionDecl *Conversion,
     return;
   }
 
+  if (LangOpts.ConceptsTS) {
+    ConstraintSatisfaction Satisfaction;
+    if (CheckFunctionConstraints(Conversion, Satisfaction) ||
+        !Satisfaction.IsSatisfied) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
+      return;
+    }
+  }
+
   // We won't go through a user-defined type conversion function to convert a
   // derived to base as such conversions are given Conversion Rank. They only
   // go through a copy constructor. 13.3.3.1.2-p4 [over.ics.user]
@@ -7030,15 +7041,6 @@ Sema::AddConversionCandidate(CXXConversionDecl *Conversion,
     Candidate.FailureKind = ovl_fail_enable_if;
     Candidate.DeductionFailure.Data = FailedAttr;
     return;
-  }
-
-  if (LangOpts.ConceptsTS) {
-    ConstraintSatisfaction Satisfaction;
-    if (CheckFunctionConstraints(Conversion, Satisfaction) ||
-        !Satisfaction.IsSatisfied) {
-      Candidate.Viable = false;
-      Candidate.FailureKind = ovl_fail_constraints_not_satisfied;
-    }
   }
 }
 
@@ -9508,8 +9510,8 @@ static void MaybeDiagnoseAmbiguousConstraints(Sema &S,
   // Perhaps the ambiguity was caused by two atomic constraints that are
   // 'identical' but not equivalent:
   //
-  // void foo() requires sizeof(T) > 4 { } // #1
-  // void foo() requires sizeof(T) > 4 && T::value { } // #2
+  // void foo() requires (sizeof(T) > 4) { } // #1
+  // void foo() requires (sizeof(T) > 4) && T::value { } // #2
   //
   // The 'sizeof(T) > 4' constraints are seemingly equivalent and should cause
   // #2 to subsume #1, but these constraint are not considered equivalent

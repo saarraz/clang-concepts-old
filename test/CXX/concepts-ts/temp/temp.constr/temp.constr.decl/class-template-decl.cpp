@@ -2,17 +2,17 @@
 
 namespace nodiag {
 
-template <typename T> requires bool(T())
+template <typename T> requires (bool(T()))
 struct A;
-template <typename U> requires bool(U())
+template <typename U> requires (bool(U()))
 struct A;
 
 template<typename T>
 concept C1 = true;
 
-template <C1 T> requires bool(T())
+template <C1 T> requires (bool(T()))
 struct B;
-template <C1 U> requires bool(U())
+template <C1 U> requires (bool(U()))
 struct B;
 
 } // end namespace nodiag
@@ -29,7 +29,7 @@ struct B;
 
 template <typename T> requires true // expected-note{{template is declared here}}
 struct C;
-template <typename T> requires !0 // expected-error{{associated constraints differ in template redeclaration}}
+template <typename T> requires (!0) // expected-error{{associated constraints differ in template redeclaration}}
 struct C;
 
 template<typename T>
@@ -45,15 +45,15 @@ struct D;
 namespace nodiag {
 
 struct AA {
-  template <typename T> requires someFunc(T())
+  template <typename T> requires (someFunc(T()))
   struct A;
 };
 
-template <typename U> requires someFunc(U())
+template <typename U> requires (someFunc(U()))
 struct AA::A { };
 
 struct AAF {
-  template <typename T> requires someFunc(T())
+  template <typename T> requires (someFunc(T()))
   friend struct AA::A;
 };
 

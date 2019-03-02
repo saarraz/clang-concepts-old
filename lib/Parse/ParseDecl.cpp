@@ -1937,6 +1937,10 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     }
   }
 
+  ExprResult TrailingRequiresClause;
+  if (Tok.is(tok::kw_requires))
+    ParseTrailingRequiresClause(D);
+
   // Check to see if we have a function *definition* which must have a body.
   if (D.isFunctionDeclarator() &&
       // Look at the next token to make sure that this isn't a function
@@ -2161,6 +2165,13 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
       ThisDecl = nullptr;
     }
   };
+
+  // C++2a [dcl.decl]p1
+  //    init-declarator:
+  //	      declarator initializer[opt]
+  //        declarator requires-clause
+  if (Tok.is(tok::kw_requires))
+    ParseTrailingRequiresClause(D);
 
   // Inform the current actions module that we just parsed this declarator.
   Decl *ThisDecl = nullptr;
@@ -5732,6 +5743,28 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       PrototypeScope.Exit();
     } else if (Tok.is(tok::l_square)) {
       ParseBracketDeclarator(D);
+    } else if (Tok.is(tok::kw_requires)) {
+      if (D.hasGroupingParens())
+        // This declarator is declaring a function, but the requires clause is
+        // in the wrong place:
+        //   void (f() requires true);
+        // instead of
+        //   void f() requires true;
+        // or
+        //   void (f()) requires true;
+        Diag(Tok, diag::err_requires_clause_inside_parens);
+      else
+        // This requires clause is in the right place, but will be parsed later
+        // as part of the init-declarator, member-declarator or
+        // function-definition.
+        break;
+      ConsumeToken();
+      ExprResult TrailingRequiresClause = Actions.CorrectDelayedTyposInExpr(
+          ParseConstraintLogicalOrExpression());
+      if (TrailingRequiresClause.isUsable() && D.isFunctionDeclarator() &&
+          !D.hasTrailingRequiresClause())
+        // We're already ill-formed if we got here but we'll accept it anyway.
+        D.setTrailingRequiresClause(TrailingRequiresClause.get());
     } else {
       break;
     }
@@ -5964,7 +5997,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   CachedTokens *ExceptionSpecTokens = nullptr;
   ParsedAttributesWithRange FnAttrs(AttrFactory);
   TypeResult TrailingReturnType;
-  ExprResult TrailingRequiresClause;
 
   /* LocalEndLoc is the end location for the local FunctionTypeLoc.
      EndLoc is the end location for the function declarator.
@@ -6086,7 +6118,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
       // Parse trailing-return-type[opt].
       LocalEndLoc = EndLoc;
-      auto ParseTrailingReturn = [&] {
+      if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
         Diag(Tok, diag::warn_cxx98_compat_trailing_return_type);
         if (D.getDeclSpec().getTypeSpecType() == TST_auto)
           StartLoc = D.getDeclSpec().getTypeSpecTypeLoc();
@@ -6094,76 +6126,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         SourceRange Range;
         TrailingReturnType = ParseTrailingReturnType(Range);
         EndLoc = Range.getEnd();
-      };
-      if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
-        ParseTrailingReturn();
-      }
-      // Parse trailing requires-clause[opt].
-      if (Tok.is(tok::kw_requires)) {
-        LocalEndLoc = Tok.getLocation();
-        ConsumeToken();
-
-        TentativeParsingAction TPA(*this);
-        DiagnosticErrorTrap Trap(Diags);
-        Diags.setSuppressAllDiagnostics(true);
-        TrailingRequiresClause =
-            Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
-        Diags.setSuppressAllDiagnostics(false);
-
-        if (!Trap.hasErrorOccurred() && TrailingRequiresClause.isUsable() &&
-            !TrailingRequiresClause.isInvalid()) {
-          TPA.Commit();
-          EndLoc = TrailingRequiresClause.get()->getLocEnd();
-
-          // Did the user swap the trailing return type and requires clause?
-          if (getLangOpts().CPlusPlus11 && Tok.is(tok::arrow)) {
-            Diag(Tok, diag::err_requires_clause_must_come_after_trailing_return);
-            // Parse it anyway
-            ParseTrailingReturn();
-          }
-          if (!D.isFunctionDeclaratorAFunctionDeclaration()) {
-            Diag(LocalEndLoc,
-              diag::err_requires_clause_on_declarator_not_declaring_a_function);
-          }
-
-        } else {
-          // Did the user swap the trailing return type and requires clause?
-          SourceLocation FailureLocation = Tok.getLocation();
-          TPA.Revert();
-          TentativeParsingAction SwapTPA(*this);
-          bool Found = false;
-          while (true) {
-            if (Tok.is(tok::arrow)) {
-              SourceLocation ArrowLoc = Tok.getLocation();
-              TentativeParsingAction TPA(*this);
-              bool PrevSuppress = Diags.getSuppressAllDiagnostics();
-              Diags.setSuppressAllDiagnostics(true);
-              ParseTrailingReturn();
-              Diags.setSuppressAllDiagnostics(PrevSuppress);
-
-              if (TrailingReturnType.isUsable()
-                  && !TrailingReturnType.isInvalid()) {
-                SwapTPA.Commit();
-                TPA.Commit();
-                Diag(ArrowLoc,
-                     diag::err_requires_clause_must_come_after_trailing_return);
-                EndLoc = Tok.getLocation();
-                Found = true;
-                break;
-              }
-              TPA.Revert();
-            }
-            if (Tok.getLocation() == FailureLocation)
-              break;
-            ConsumeAnyToken();
-          }
-          if (!Found) {
-            SwapTPA.Revert();
-            // User did not swap a trailing return and a trailing requires clause.
-            // Re-parse the thing and display the original error message.
-            ParseConstraintExpression();
-          }
-        }
       }
     } else if (standardAttributesAllowed()) {
       MaybeParseCXX11Attributes(FnAttrs);
@@ -6206,9 +6168,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                              ExceptionSpecTokens,
                                              DeclsInPrototype,
                                              StartLoc, LocalEndLoc, D,
-                                             TrailingReturnType,
-                                             TrailingRequiresClause.isUsable() ?
-                                        TrailingRequiresClause.get() : nullptr),
+                                             TrailingReturnType),
                 FnAttrs, EndLoc);
 }
 
@@ -6387,6 +6347,16 @@ void Parser::ParseParameterDeclarationClause(
 
     // Parse GNU attributes, if present.
     MaybeParseGNUAttributes(ParmDeclarator);
+
+    if (Tok.is(tok::kw_requires)) {
+      // User tried to define a requires clause in a parameter declaration,
+      // which is surely not a function declaration.
+      // void f(int (*g)(int, int) requires true);
+      Diag(Tok,
+           diag::err_requires_clause_on_declarator_not_declaring_a_function);
+      ConsumeToken();
+      Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());
+    }
 
     // Remember this parsed parameter in ParamInfo.
     IdentifierInfo *ParmII = ParmDeclarator.getIdentifier();

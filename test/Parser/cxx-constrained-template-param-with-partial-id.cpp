@@ -17,11 +17,11 @@ namespace ns {
 }
 
 template<ns::C2 T1, ::ns::C2 T2> // expected-error 2{{concept 'C2' requires more than 1 template argument; provide the remaining arguments explicitly to use it here}}
-requires sizeof(T1) <= sizeof(T2) // expected-error{{expected unqualified-id}}
+requires (sizeof(T1) <= sizeof(T2)) // expected-error{{expected unqualified-id}}
 struct badB { };
 
 template<ns::C2<int> T1, ::ns::C2<char, T1> T2>
-  requires sizeof(T1) <= sizeof(T2)
+  requires (sizeof(T1) <= sizeof(T2))
 struct B { };
 
 using b = B<int, int>;

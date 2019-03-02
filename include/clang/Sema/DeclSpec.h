@@ -1329,10 +1329,6 @@ struct DeclaratorChunk {
     /// type specified.
     UnionParsedType TrailingReturnType;
 
-    /// \brief The constraint-expression specified by the trailing
-    /// requires-clause, or null if no such clause was specified.
-    Expr *TrailingRequiresClause;
-
 
     /// \brief Reset the parameter list to having zero parameters.
     ///
@@ -1452,15 +1448,6 @@ struct DeclaratorChunk {
 
     /// \brief Get the trailing-return-type for this function declarator.
     ParsedType getTrailingReturnType() const { return TrailingReturnType; }
-
-    /// \brief Determine whether this function declarator had a
-    /// trailing requires-clause.
-    bool hasTrailingRequiresClause() const { return TrailingRequiresClause; }
-
-    /// \brief Get the trailing requires-clause for this function declarator.
-    Expr *getTrailingRequiresClause() const {
-      return TrailingRequiresClause;
-    }
   };
 
   struct BlockPointerTypeInfo : TypeInfoCommon {
@@ -1605,8 +1592,7 @@ struct DeclaratorChunk {
                                      SourceLocation LocalRangeEnd,
                                      Declarator &TheDeclarator,
                                      TypeResult TrailingReturnType =
-                                                    TypeResult(),
-                                     Expr *TrailingRequiresClause = nullptr);
+                                                    TypeResult());
 
   /// \brief Return a DeclaratorChunk for a block.
   static DeclaratorChunk getBlockPointer(unsigned TypeQuals,
@@ -1813,6 +1799,10 @@ private:
   /// \brief The asm label, if specified.
   Expr *AsmLabel;
 
+  /// \brief The constraint-expression specified by the trailing
+  /// requires-clause, or null if no such clause was specified.
+  Expr *TrailingRequiresClause;
+
 #ifndef _MSC_VER
   union {
 #endif
@@ -1842,7 +1832,8 @@ public:
         GroupingParens(false), FunctionDefinition(FDK_Declaration),
         Redeclaration(false), Extension(false), ObjCIvar(false),
         ObjCWeakProperty(false), InlineStorageUsed(false),
-        Attrs(ds.getAttributePool().getFactory()), AsmLabel(nullptr) {}
+        Attrs(ds.getAttributePool().getFactory()), AsmLabel(nullptr),
+        TrailingRequiresClause(nullptr) {}
 
   ~Declarator() {
     clear();
@@ -2369,14 +2360,20 @@ public:
     return false;
   }
 
-  /// \brief Determine whether a trailing requires clause was written (at any
-  /// level) within this declarator.
+  /// \brief Sets a trailing requires clause for this declarator.
+  void setTrailingRequiresClause(Expr *TRC) {
+    TrailingRequiresClause = TRC;
+  }
+
+  /// \brief Sets a trailing requires clause for this declarator.
+  Expr *getTrailingRequiresClause() {
+    return TrailingRequiresClause;
+  }
+
+  /// \brief Determine whether a trailing requires clause was written in this
+  /// declarator.
   bool hasTrailingRequiresClause() const {
-    for (const auto &Chunk : type_objects())
-      if (Chunk.Kind == DeclaratorChunk::Function &&
-          Chunk.Fun.hasTrailingRequiresClause())
-        return true;
-    return false;
+    return TrailingRequiresClause != nullptr;
   }
 
   /// takeAttributes - Takes attributes from the given parsed-attributes

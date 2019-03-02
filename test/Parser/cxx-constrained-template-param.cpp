@@ -16,7 +16,7 @@ namespace type
     concept C2 = true;
   }
 
-  template<ns::C2 T1, ::type::ns::C2 T2> requires sizeof(T1) <= sizeof(T2)
+  template<ns::C2 T1, ::type::ns::C2 T2> requires (sizeof(T1) <= sizeof(T2))
   struct B { };
 
   using b = B<int, int>;
@@ -43,7 +43,7 @@ namespace non_type
     concept C2 = true;
   }
 
-  template<ns::C2 v1, ::non_type::ns::C2 v2> requires sizeof(v1) <= sizeof(v2)
+  template<ns::C2 v1, ::non_type::ns::C2 v2> requires (sizeof(v1) <= sizeof(v2))
   struct B { };
 
   using b = B<true, false>;
@@ -77,7 +77,7 @@ namespace temp
   }
 
   template<ns::C2 TT1, ::temp::ns::C2 TT2>
-    requires sizeof(TT1<int>) <= sizeof(TT2<int>)
+    requires (sizeof(TT1<int>) <= sizeof(TT2<int>))
   struct B { };
 
   using b = B<test1, test2>;

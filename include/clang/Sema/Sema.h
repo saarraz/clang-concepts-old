@@ -5578,8 +5578,10 @@ public:
                                            Expr *Src);
 
   /// Check whether the given expression is a valid constraint expression.
-  /// A diagnostic is emitted if it is not, and false is returned.
-  bool CheckConstraintExpression(Expr *CE);
+  /// A diagnostic is emitted if it is not, false is returned and \p Culprit
+  /// (if non-null) will contain the first atomic constraint expression that
+  /// caused the problem.
+  bool CheckConstraintExpression(Expr *CE, Expr **Culprit = nullptr);
 
 private:
   /// \brief Caches pairs of template-like decls whose associated constraints

@@ -952,11 +952,7 @@ Parser::TPResult Parser::TryParseDeclarator(bool mayBeAbstract,
     } else if (Tok.is(tok::kw_requires)) {
       // declarator requires-clause
       // A requires clause indicates a function declaration.
-      if (ParenCount) {
-        SkipUntil(tok::l_paren);
-      } else {
-        TPR = TPResult::True;
-      }
+      TPR = TPResult::True;
     } else {
       break;
     }

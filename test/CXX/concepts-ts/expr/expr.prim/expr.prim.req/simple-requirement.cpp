@@ -47,7 +47,7 @@ using r4i2 = r4<int[10]>;
 using r4i3 = r4<int(int)>;
 #endif
 template<class T> void f(T) = delete;
-template<class T> requires sizeof(T) == 1 void f(T) { }
+template<class T> requires (sizeof(T) == 1) void f(T) { }
 
 template<typename T> requires requires(T t) { f(t); }
 // expected-note@-1{{because 'f(t)' would be invalid: call to deleted function 'f'}}

@@ -27,7 +27,8 @@
 using namespace clang;
 using namespace sema;
 
-bool Sema::CheckConstraintExpression(Expr *ConstraintExpression) {
+bool Sema::CheckConstraintExpression(Expr *ConstraintExpression,
+                                     Expr **Culprit) {
   // C++2a [temp.constr.atomic]p1
   // ..E shall be a constant expression of type bool.
 
@@ -46,6 +47,8 @@ bool Sema::CheckConstraintExpression(Expr *ConstraintExpression) {
     Diag(ConstraintExpression->getExprLoc(),
          diag::err_non_bool_atomic_constraint) << Type
         << ConstraintExpression->getSourceRange();
+    if (Culprit)
+      *Culprit = ConstraintExpression;
     return false;
   }
   return true;

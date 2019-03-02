@@ -7502,9 +7502,8 @@ struct FindOverriddenMethod {
             !S->IsOverload(
                 Method, MD, /*UseMemberUsingDeclRules=*/false,
                 /*ConsiderCudaAttrs=*/true,
-                // C++2a [class.virtual]p2 does not currently consider requires
-                // clauses when overriding - this is perhaps a wording defect
-                // that might get fixed someday.
+                // C++2a [class.virtual]p2 does not consider requires clauses
+                // when overriding.
                 /*ConsiderRequiresClauses=*/false))
           return true;
       }
@@ -7854,10 +7853,7 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
 
   bool isExplicit = D.getDeclSpec().isExplicitSpecified();
   bool isConstexpr = D.getDeclSpec().isConstexprSpecified();
-  Expr *TrailingRequiresClause =
-      (D.isFunctionDeclarator() && D.hasTrailingRequiresClause())
-          ? D.getFunctionTypeInfo().getTrailingRequiresClause()
-          : nullptr;
+  Expr *TrailingRequiresClause = D.getTrailingRequiresClause();
 
   // Check that the return type is not an abstract class type.
   // For record types, this is done by the AbstractClassUsageDiagnoser once

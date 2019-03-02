@@ -2254,6 +2254,7 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
     LateParsedAttrList &LateParsedAttrs) {
   // member-declarator:
   //   declarator pure-specifier[opt]
+  //   declarator requires-clause
   //   declarator brace-or-equal-initializer[opt]
   //   identifier[opt] ':' constant-expression
   if (Tok.isNot(tok::colon))
@@ -2267,7 +2268,9 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
     BitfieldSize = ParseConstantExpression();
     if (BitfieldSize.isInvalid())
       SkipUntil(tok::comma, StopAtSemi | StopBeforeMatch);
-  } else {
+  } else if (Tok.is(tok::kw_requires))
+    ParseTrailingRequiresClause(DeclaratorInfo);
+  else {
     ParseOptionalCXX11VirtSpecifierSeq(
         VS, getCurrentClass().IsInterface,
         DeclaratorInfo.getDeclSpec().getFriendSpecLoc());
@@ -2401,6 +2404,7 @@ void Parser::MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(
 ///
 ///       member-declarator:
 ///         declarator virt-specifier-seq[opt] pure-specifier[opt]
+/// [C++2a] declarator requires-clause
 ///         declarator constant-initializer[opt]
 /// [C++11] declarator brace-or-equal-initializer[opt]
 ///         identifier[opt] ':' constant-expression
@@ -2625,6 +2629,7 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
 
   SmallVector<Decl *, 8> DeclsInGroup;
   ExprResult BitfieldSize;
+  ExprResult TrailingRequiresClause;
   bool ExpectSemi = true;
 
   // Parse the first declarator.
@@ -3710,6 +3715,48 @@ TypeResult Parser::ParseTrailingReturnType(SourceRange &Range) {
   ConsumeToken();
 
   return ParseTypeName(&Range, Declarator::TrailingReturnContext);
+}
+
+/// ParseTrailingRequiresClause - Parse a requires-clause as part of a function
+/// declaration.
+void Parser::ParseTrailingRequiresClause(Declarator &D) {
+  assert(Tok.is(tok::kw_requires) && "expected requires");
+
+  SourceLocation RequiresKWLoc = ConsumeToken();
+
+  ExprResult TrailingRequiresClause =
+      Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());
+
+  if (!D.isDeclarationOfFunction()) {
+    Diag(RequiresKWLoc,
+         diag::err_requires_clause_on_declarator_not_declaring_a_function);
+    return;
+  }
+
+  if (TrailingRequiresClause.isInvalid())
+    SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma},
+              StopAtSemi | StopBeforeMatch);
+  else
+    D.setTrailingRequiresClause(TrailingRequiresClause.get());
+
+  // Did the user swap the trailing return type and requires clause?
+  if (D.isFunctionDeclarator() && Tok.is(tok::arrow) &&
+      D.getDeclSpec().getTypeSpecType() == TST_auto) {
+    SourceLocation ArrowLoc = Tok.getLocation();
+    SourceRange Range;
+    TypeResult TrailingReturnType = ParseTrailingReturnType(Range);
+
+    if (!TrailingReturnType.isInvalid()) {
+      Diag(ArrowLoc,
+           diag::err_requires_clause_must_come_after_trailing_return)
+          << Range;
+      auto &FunctionChunk = D.getFunctionTypeInfo();
+      FunctionChunk.HasTrailingReturnType = TrailingReturnType.isUsable();
+      FunctionChunk.TrailingReturnType = TrailingReturnType.get();
+    } else
+      SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma},
+                StopAtSemi | StopBeforeMatch);
+  }
 }
 
 /// \brief We have just started parsing the definition of a new class,

@@ -880,10 +880,6 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
 	    if (!T.isNull() && T->containsUnexpandedParameterPack())
 	      return true;
       }
-
-      if (Chunk.Fun.hasTrailingRequiresClause() &&
-          Chunk.Fun.TrailingRequiresClause->containsUnexpandedParameterPack())
-          return true;
       break;
 
     case DeclaratorChunk::MemberPointer:
@@ -893,6 +889,10 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
       break;
     }
   }
+
+  if (Expr *TRC = D.getTrailingRequiresClause())
+    if (TRC->containsUnexpandedParameterPack())
+      return true;
   
   return false;
 }

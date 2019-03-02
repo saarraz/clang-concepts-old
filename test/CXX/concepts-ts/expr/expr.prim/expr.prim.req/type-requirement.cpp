@@ -84,7 +84,7 @@ struct r5v1 {};
 template<typename T> requires requires { typename ::E<T>; } // expected-error{{template arguments provided for non-template 'E'}}
 struct r5v2 {};
 
-template<typename T> requires sizeof(T) == 1
+template<typename T> requires (sizeof(T) == 1)
 struct chars_only {};
 
 template<typename T> requires requires { typename chars_only<T>; } // expected-note{{because 'chars_only<T>' would be invalid: constraints not satisfied for class template 'chars_only' [with T = int]}}
@@ -138,10 +138,10 @@ static_assert(requires { typename X::inner; }); // expected-error{{reference to 
 template<typename T>
 struct Z;
 
-template<typename T> requires sizeof(T) >= 1
+template<typename T> requires (sizeof(T) >= 1)
 struct Z<T> {}; // expected-note{{partial specialization matches [with T = int]}}
 
-template<typename T> requires sizeof(T) <= 4
+template<typename T> requires (sizeof(T) <= 4)
 struct Z<T> {}; // expected-note{{partial specialization matches [with T = int]}}
 
 Z<int> x; // expected-error{{ambiguous partial specializations of 'Z<int>'}}

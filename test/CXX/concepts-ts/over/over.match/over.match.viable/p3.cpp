@@ -25,3 +25,28 @@ void foo() {
   (void) static_cast<S2>(S1());
   // expected-error@-1 {{no matching conversion for static_cast from 'S1' to 'S2'}}
 }
+
+// Test that constraints are checked before implicit conversions are formed.
+
+template<typename T>
+struct invalid_template { using X = typename T::non_existant; };
+struct A {
+  template<typename T, bool=invalid_template<T>::aadasas>
+  operator T() {}
+};
+
+void foo(int) requires false;
+void foo(A) requires true;
+
+struct S {
+  void foo(int) requires false;
+  void foo(A) requires true;
+  S(A) requires false;
+  S(double) requires true;
+};
+
+void bar() {
+  foo(A{});
+  S{1.}.foo(A{});
+  S s = 1;
+}

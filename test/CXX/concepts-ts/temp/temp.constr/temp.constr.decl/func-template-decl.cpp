@@ -2,9 +2,9 @@
 
 namespace nodiag {
 
-template <typename T> requires bool(T())
+template <typename T> requires (bool(T()))
 int A();
-template <typename U> requires bool(U())
+template <typename U> requires (bool(U()))
 int A();
 
 } // end namespace nodiag
@@ -12,11 +12,11 @@ int A();
 namespace nodiag {
 
 struct AA {
-  template <typename T> requires someFunc(T())
+  template <typename T> requires (someFunc(T()))
   int A();
 };
 
-template <typename T> requires someFunc(T())
+template <typename T> requires (someFunc(T()))
 int AA::A() { return sizeof(T); }
 
 } // end namespace nodiag

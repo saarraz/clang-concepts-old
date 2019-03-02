@@ -13,7 +13,7 @@ namespace templates
   concept AtLeast1 = sizeof(T) >= 1;
 
   template<typename T>
-  int foo(T t) requires sizeof(T) == 4 { // expected-note {{candidate function}}
+  int foo(T t) requires (sizeof(T) == 4) { // expected-note {{candidate function}}
     return 0;
   }
 
@@ -23,7 +23,7 @@ namespace templates
   }
 
   template<typename T>
-  double foo(T t) requires AtLeast1<T> && sizeof(T) <= 2 {
+  double foo(T t) requires (AtLeast1<T> && sizeof(T) <= 2) {
     return 'a';
   }
 
@@ -31,12 +31,12 @@ namespace templates
   static_assert(is_same_v<decltype(foo(short(10))), double>);
 
   template<typename T>
-  void bar() requires sizeof(T) == 1 { }
+  void bar() requires (sizeof(T) == 1) { }
   // expected-note@-1{{and here}}
   // expected-note@-2{{candidate function [with T = char]}}
 
   template<typename T>
-  void bar() requires sizeof(T) == 1 && sizeof(T) >= 0 { }
+  void bar() requires (sizeof(T) == 1 && sizeof(T) >= 0) { }
   // expected-note@-1{{'sizeof(T) == 1' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
   // expected-note@-2{{candidate function [with T = char]}}
 
@@ -80,11 +80,11 @@ namespace non_template
     return 0.0;
   }
 
-  void bar() requires sizeof(long) >= 8 { }
+  void bar() requires (sizeof(long) >= 8) { }
   // expected-note@-1 {{candidate function}}
   // expected-note@-2 {{and here}}
 
-  void bar() requires sizeof(long) >= 8 && sizeof(int) <= 30 { }
+  void bar() requires (sizeof(long) >= 8 && sizeof(int) <= 30) { }
   // expected-note@-1 {{candidate function}}
   // expected-note@-2 {{'sizeof(long) >= 8' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
 

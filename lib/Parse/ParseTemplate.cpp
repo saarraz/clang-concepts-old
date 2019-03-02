@@ -138,7 +138,8 @@ Parser::ParseTemplateDeclarationOrSpecialization(unsigned Context,
 
       if (TryConsumeToken(tok::kw_requires)) {
         OptionalRequiresClauseConstraintER =
-            Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
+            Actions.CorrectDelayedTyposInExpr(
+                ParseConstraintLogicalOrExpression());
         if (!OptionalRequiresClauseConstraintER.isUsable()) {
           // Skip until the semi-colon or a '}'.
           SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
@@ -270,8 +271,30 @@ Parser::ParseSingleDeclarationAfterTemplate(
   }
 
   LateParsedAttrList LateParsedAttrs(true);
-  if (DeclaratorInfo.isFunctionDeclarator())
+  if (DeclaratorInfo.isFunctionDeclarator()) {
     MaybeParseGNUAttributes(DeclaratorInfo, &LateParsedAttrs);
+
+    if (Tok.is(tok::kw_requires)) {
+      ParseScope RequiresClauseScope(this,
+                                     Scope::FunctionPrototypeScope |
+                                     Scope::FunctionDeclarationScope |
+                                     Scope::DeclScope);
+      auto &FunctionInfo = DeclaratorInfo.getFunctionTypeInfo();
+      for (unsigned I = 0, C = FunctionInfo.NumParams; I != C; ++I) {
+        auto *ND = dyn_cast<NamedDecl>(FunctionInfo.Params[I].Param);
+        if (!ND)
+          continue;
+        if (ND->getDeclName())
+          Actions.PushOnScopeChains(ND, getCurScope(), /*AddToContext=*/false);
+
+        if (auto *ED = dyn_cast<EnumDecl>(ND))
+          for (auto *EI : ED->enumerators())
+            Actions.PushOnScopeChains(EI, getCurScope(),
+                                      /*AddToContext=*/false);
+      }
+      ParseTrailingRequiresClause(DeclaratorInfo);
+    }
+  }
 
   if (DeclaratorInfo.isFunctionDeclarator() &&
       isStartOfFunctionDefinition(DeclaratorInfo)) {
