@@ -168,6 +168,16 @@ public:
     return HasRequiresClause ? *getTrailingObjects<Expr *>() : nullptr;
   }
 
+  /// \brief All associated constraints derived from this template parameter
+  /// list, including the requires clause and any constraints derived from
+  /// constrained-parameters.
+  ///
+  /// The constraints in the resulting list are to be treated as if in a
+  /// conjunction ("and").
+  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const;
+
+  bool hasAssociatedConstraints() const;
+
   SourceLocation getTemplateLoc() const { return TemplateLoc; }
   SourceLocation getLAngleLoc() const { return LAngleLoc; }
   SourceLocation getRAngleLoc() const { return RAngleLoc; }
@@ -364,33 +374,7 @@ public:
 // Kinds of Templates
 //===----------------------------------------------------------------------===//
 
-/// Stores the template parameter list and associated constraints for
-/// \c TemplateDecl objects that track associated constraints.
-class ConstrainedTemplateDeclInfo {
-  friend TemplateDecl;
-
-public:
-  ConstrainedTemplateDeclInfo() = default;
-
-  TemplateParameterList *getTemplateParameters() const {
-    return TemplateParams;
-  }
-
-  Expr *getAssociatedConstraints() const { return AssociatedConstraints; }
-
-protected:
-  void setTemplateParameters(TemplateParameterList *TParams) {
-    TemplateParams = TParams;
-  }
-
-  void setAssociatedConstraints(Expr *AC) { AssociatedConstraints = AC; }
-
-  TemplateParameterList *TemplateParams = nullptr;
-  Expr *AssociatedConstraints = nullptr;
-};
-
-
-/// The base class of all kinds of template declarations (e.g.,
+/// \brief The base class of all kinds of template declarations (e.g.,
 /// class, function, etc.).
 ///
 /// The TemplateDecl class stores the list of template parameters and a
@@ -399,54 +383,32 @@ class TemplateDecl : public NamedDecl {
   void anchor() override;
 
 protected:
+  // Construct a template decl with name, parameters, and templated element.
+  TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName Name,
+               TemplateParameterList *Params, NamedDecl *Decl);
+
   // Construct a template decl with the given name and parameters.
   // Used when there is no templated element (e.g., for tt-params).
-  TemplateDecl(ConstrainedTemplateDeclInfo *CTDI, Kind DK, DeclContext *DC,
-               SourceLocation L, DeclarationName Name,
-               TemplateParameterList *Params)
-      : NamedDecl(DK, DC, L, Name), TemplatedDecl(nullptr),
-        TemplateParams(CTDI) {
-    this->setTemplateParameters(Params);
-  }
-
   TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName Name,
                TemplateParameterList *Params)
-      : TemplateDecl(nullptr, DK, DC, L, Name, Params) {}
-
-  // Construct a template decl with name, parameters, and templated element.
-  TemplateDecl(ConstrainedTemplateDeclInfo *CTDI, Kind DK, DeclContext *DC,
-               SourceLocation L, DeclarationName Name,
-               TemplateParameterList *Params, NamedDecl *Decl)
-      : NamedDecl(DK, DC, L, Name), TemplatedDecl(Decl),
-        TemplateParams(CTDI) {
-    this->setTemplateParameters(Params);
-  }
-
-  TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName Name,
-               TemplateParameterList *Params, NamedDecl *Decl)
-      : TemplateDecl(nullptr, DK, DC, L, Name, Params, Decl) {}
+      : TemplateDecl(DK, DC, L, Name, Params, nullptr) {}
 
 public:
+  friend class ASTDeclReader;
+  friend class ASTDeclWriter;
+
   /// Get the list of template parameters
   TemplateParameterList *getTemplateParameters() const {
-    const auto *const CTDI =
-        TemplateParams.dyn_cast<ConstrainedTemplateDeclInfo *>();
-    return CTDI ? CTDI->getTemplateParameters()
-                : TemplateParams.get<TemplateParameterList *>();
+    return TemplateParams;
   }
 
-  /// Get the constraint-expression from the associated requires-clause (if any)
-  const Expr *getRequiresClause() const {
-    const TemplateParameterList *const TP = getTemplateParameters();
-    return TP ? TP->getRequiresClause() : nullptr;
-  }
+  /// \brief Get the total constraint-expression associated with this template,
+  /// including constraint-expressions derived from the requires-clause,
+  /// trailing requires-clause (for functions and methods) and constrained
+  /// template parameters.
+  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const;
 
-  Expr *getAssociatedConstraints() const {
-    const auto *const C = cast<TemplateDecl>(getCanonicalDecl());
-    const auto *const CTDI =
-        C->TemplateParams.dyn_cast<ConstrainedTemplateDeclInfo *>();
-    return CTDI ? CTDI->getAssociatedConstraints() : nullptr;
-  }
+  bool hasAssociatedConstraints() const;
 
   /// Get the underlying, templated declaration.
   NamedDecl *getTemplatedDecl() const { return TemplatedDecl; }
@@ -465,29 +427,10 @@ public:
 
 protected:
   NamedDecl *TemplatedDecl;
-
-  /// The template parameter list and optional requires-clause
-  /// associated with this declaration; alternatively, a
-  /// \c ConstrainedTemplateDeclInfo if the associated constraints of the
-  /// template are being tracked by this particular declaration.
-  llvm::PointerUnion<TemplateParameterList *,
-                     ConstrainedTemplateDeclInfo *>
-      TemplateParams;
+  TemplateParameterList *TemplateParams;
 
   void setTemplateParameters(TemplateParameterList *TParams) {
-    if (auto *const CTDI =
-            TemplateParams.dyn_cast<ConstrainedTemplateDeclInfo *>()) {
-      CTDI->setTemplateParameters(TParams);
-    } else {
-      TemplateParams = TParams;
-    }
-  }
-
-  void setAssociatedConstraints(Expr *AC) {
-    assert(isCanonicalDecl() &&
-           "Attaching associated constraints to non-canonical Decl");
-    TemplateParams.get<ConstrainedTemplateDeclInfo *>()
-        ->setAssociatedConstraints(AC);
+    TemplateParams = TParams;
   }
 
 public:
@@ -832,17 +775,10 @@ protected:
   virtual CommonBase *newCommon(ASTContext &C) const = 0;
 
   // Construct a template decl with name, parameters, and templated element.
-  RedeclarableTemplateDecl(ConstrainedTemplateDeclInfo *CTDI, Kind DK,
-                           ASTContext &C, DeclContext *DC, SourceLocation L,
-                           DeclarationName Name, TemplateParameterList *Params,
-                           NamedDecl *Decl)
-      : TemplateDecl(CTDI, DK, DC, L, Name, Params, Decl), redeclarable_base(C)
-        {}
-
   RedeclarableTemplateDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            SourceLocation L, DeclarationName Name,
                            TemplateParameterList *Params, NamedDecl *Decl)
-      : RedeclarableTemplateDecl(nullptr, DK, C, DC, L, Name, Params, Decl) {}
+      : TemplateDecl(DK, DC, L, Name, Params, Decl), redeclarable_base(C) {}
 
 public:
   friend class ASTDeclReader;
@@ -1955,6 +1891,20 @@ public:
     return TemplateParams;
   }
 
+  /// \brief All associated constraints of this partial specialization,
+  /// including the requires clause and any constraints derived from
+  /// constrained-parameters.
+  ///
+  /// The constraints in the resulting list are to be treated as if in a
+  /// conjunction ("and").
+  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const {
+    return TemplateParams->getAssociatedConstraints();
+  }
+
+  bool hasAssociatedConstraints() const {
+    return TemplateParams->hasAssociatedConstraints();
+  }
+
   /// Get the template arguments as written.
   const ASTTemplateArgumentListInfo *getTemplateArgsAsWritten() const {
     return ArgsAsWritten;
@@ -2074,16 +2024,10 @@ protected:
   llvm::FoldingSetVector<ClassTemplatePartialSpecializationDecl> &
   getPartialSpecializations();
 
-  ClassTemplateDecl(ConstrainedTemplateDeclInfo *CTDI, ASTContext &C,
-                    DeclContext *DC, SourceLocation L, DeclarationName Name,
-                    TemplateParameterList *Params, NamedDecl *Decl)
-      : RedeclarableTemplateDecl(CTDI, ClassTemplate, C, DC, L, Name, Params,
-                                 Decl) {}
-
   ClassTemplateDecl(ASTContext &C, DeclContext *DC, SourceLocation L,
                     DeclarationName Name, TemplateParameterList *Params,
                     NamedDecl *Decl)
-      : ClassTemplateDecl(nullptr, C, DC, L, Name, Params, Decl) {}
+      : RedeclarableTemplateDecl(ClassTemplate, C, DC, L, Name, Params, Decl) {}
 
   CommonBase *newCommon(ASTContext &C) const override;
 
@@ -2109,14 +2053,12 @@ public:
     return getTemplatedDecl()->isThisDeclarationADefinition();
   }
 
-  // FIXME: remove default argument for AssociatedConstraints
-  /// Create a class template node.
+  /// \brief Create a class template node.
   static ClassTemplateDecl *Create(ASTContext &C, DeclContext *DC,
                                    SourceLocation L,
                                    DeclarationName Name,
                                    TemplateParameterList *Params,
-                                   NamedDecl *Decl,
-                                   Expr *AssociatedConstraints = nullptr);
+                                   NamedDecl *Decl);
 
   /// Create an empty class template node.
   static ClassTemplateDecl *CreateDeserialized(ASTContext &C, unsigned ID);
@@ -2788,7 +2730,21 @@ public:
     return ArgsAsWritten;
   }
 
-  /// Retrieve the member variable template partial specialization from
+  /// \brief All associated constraints of this partial specialization,
+  /// including the requires clause and any constraints derived from
+  /// constrained-parameters.
+  ///
+  /// The constraints in the resulting list are to be treated as if in a
+  /// conjunction ("and").
+  llvm::SmallVector<const Expr *, 3> getAssociatedConstraints() const {
+    return TemplateParams->getAssociatedConstraints();
+  }
+
+  bool hasAssociatedConstraints() const {
+    return TemplateParams->hasAssociatedConstraints();
+  }
+
+  /// \brief Retrieve the member variable template partial specialization from
   /// which this particular variable template partial specialization was
   /// instantiated.
   ///
@@ -3017,11 +2973,9 @@ class ConceptDecl : public TemplateDecl, public Mergeable<ConceptDecl> {
 protected:
   Expr *ConstraintExpr;
 
-  ConceptDecl(DeclContext *DC,
-              SourceLocation L, DeclarationName Name,
-              TemplateParameterList *Params,
-              Expr *ConstraintExpr)
-      : TemplateDecl(nullptr, Concept, DC, L, Name, Params),
+  ConceptDecl(DeclContext *DC, SourceLocation L, DeclarationName Name,
+              TemplateParameterList *Params, Expr *ConstraintExpr)
+      : TemplateDecl(Concept, DC, L, Name, Params),
         ConstraintExpr(ConstraintExpr) {};
 public:
   static ConceptDecl *Create(ASTContext &C, DeclContext *DC,

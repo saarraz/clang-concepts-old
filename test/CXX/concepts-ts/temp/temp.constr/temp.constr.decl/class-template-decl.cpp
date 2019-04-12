@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++14 -fconcepts-ts -x c++ -verify %s
+// RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ -verify %s
 
 namespace nodiag {
 
@@ -33,7 +33,7 @@ struct AA {
   struct A;
 };
 
-template <typename T> requires someFunc(T())
+template <typename U> requires someFunc(U())
 struct AA::A { };
 
 struct AAF {
@@ -47,8 +47,11 @@ namespace diag {
 
 template <unsigned N>
 struct TA {
-  template <template <unsigned> class TT> requires TT<N>::happy // expected-note 2{{previous template declaration is here}}
+  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{previous template declaration is here}}
   struct A;
+
+  template <template <unsigned> class TT> requires TT<N>::happy // expected-note {{previous template declaration is here}}
+  struct B;
 
   struct AF;
 };
@@ -56,9 +59,14 @@ struct TA {
 template <unsigned N>
 template <template <unsigned> class TT> struct TA<N>::A { }; // expected-error{{associated constraints differ in template redeclaration}}
 
+
+template <unsigned N>
+template <template <unsigned> class TT> requires TT<N + 1>::happy struct TA<N>::B { }; // expected-error{{associated constraints differ in template redeclaration}}
+
 template <unsigned N>
 struct TA<N>::AF {
-  template <template <unsigned> class TT> requires TT<N + 0>::happy // expected-error{{associated constraints differ in template redeclaration}}
+  // we do not expect a diagnostic here because the template parameter list is dependent.
+  template <template <unsigned> class TT> requires TT<N + 0>::happy
   friend struct TA::A;
 };
 
