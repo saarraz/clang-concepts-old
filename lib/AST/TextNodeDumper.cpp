@@ -1915,3 +1915,7 @@ void TextNodeDumper::VisitBlockDecl(const BlockDecl *D) {
   if (D->capturesCXXThis())
     OS << " captures_this";
 }
+
+void TextNodeDumper::VisitConceptDecl(const ConceptDecl *D) {
+  dumpName(D);
+}

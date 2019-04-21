@@ -4895,6 +4895,7 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
   case Decl::UsingShadow:
   case Decl::ClassTemplate:
   case Decl::VarTemplate:
+  case Decl::Concept:
   case Decl::VarTemplatePartialSpecialization:
   case Decl::FunctionTemplate:
   case Decl::TypeAliasTemplate:
