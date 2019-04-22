@@ -718,6 +718,10 @@ class Sema;
     /// This candidate was not viable because it is a non-default multiversioned
     /// function.
     ovl_non_default_multiversion_function,
+
+    /// This candidate was not viable because its associated constraints were
+    /// not satisfied.
+    ovl_fail_constraints_not_satisfied
   };
 
   /// A list of implicit conversion sequences for the arguments of an

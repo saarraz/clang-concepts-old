@@ -7449,7 +7449,8 @@ NamedDecl * Sema::DeclClonePragmaWeak(NamedDecl *ND, IdentifierInfo *II,
                                  FD->getType(), FD->getTypeSourceInfo(),
                                  SC_None, false/*isInlineSpecified*/,
                                  FD->hasPrototype(),
-                                 false/*isConstexprSpecified*/);
+                                 false/*isConstexprSpecified*/,
+                                 FD->getTrailingRequiresClause());
     NewD = NewFD;
 
     if (FD->getQualifier())

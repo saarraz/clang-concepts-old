@@ -686,10 +686,12 @@ struct QualifierInfo {
 /// Represents a ValueDecl that came out of a declarator.
 /// Contains type source information through TypeSourceInfo.
 class DeclaratorDecl : public ValueDecl {
-  // A struct representing both a TInfo and a syntactic qualifier,
-  // to be used for the (uncommon) case of out-of-line declarations.
+  // A struct representing a TInfo, a trailing requires-clause and a syntactic
+  // qualifier, to be used for the (uncommon) case of out-of-line declarations
+  // and constrained function decls.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
+    Expr *TrailingRequiresClause = nullptr;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -755,6 +757,21 @@ public:
   }
 
   void setQualifierInfo(NestedNameSpecifierLoc QualifierLoc);
+
+  /// \brief Get the constraint-expression introduced by the trailing
+  /// requires-clause in the function/member declaration, or null if no
+  /// requires-clause was provided.
+  Expr *getTrailingRequiresClause() {
+    return hasExtInfo() ? getExtInfo()->TrailingRequiresClause
+                        : nullptr;
+  }
+
+  const Expr *getTrailingRequiresClause() const {
+    return hasExtInfo() ? getExtInfo()->TrailingRequiresClause
+                        : nullptr;
+  }
+
+  void setTrailingRequiresClause(Expr *TrailingRequiresClause);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -1841,7 +1858,8 @@ protected:
   FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool isInlineSpecified,
-               bool isConstexprSpecified);
+               bool isConstexprSpecified,
+               Expr *TrailingRequiresClause = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -1878,12 +1896,13 @@ public:
                               StorageClass SC,
                               bool isInlineSpecified = false,
                               bool hasWrittenPrototype = true,
-                              bool isConstexprSpecified = false) {
+                              bool isConstexprSpecified = false,
+                              Expr *TrailingRequiresClause = nullptr) {
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo,
                                 SC,
                                 isInlineSpecified, hasWrittenPrototype,
-                                isConstexprSpecified);
+                                isConstexprSpecified, TrailingRequiresClause);
   }
 
   static FunctionDecl *Create(ASTContext &C, DeclContext *DC,
@@ -1893,7 +1912,8 @@ public:
                               StorageClass SC,
                               bool isInlineSpecified,
                               bool hasWrittenPrototype,
-                              bool isConstexprSpecified = false);
+                              bool isConstexprSpecified = false,
+                              Expr *TrailingRequiresClause = nullptr);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, unsigned ID);
 
@@ -2247,6 +2267,17 @@ public:
   /// True if this function is a multiversioned dispatch function as a part of
   /// the target functionality.
   bool isTargetMultiVersion() const;
+
+  /// \brief Get the associated-constraints of this function declaration.
+  /// Currently, this will either be a vector of size 1 containing the
+  /// trailing-requires-clause or an empty vector.
+  ///
+  /// Use this instead of getTrailingRequiresClause for concepts APIs that
+  /// accept an ArrayRef of constraint expressions.
+  void getAssociatedConstraints(SmallVectorImpl<const Expr *> &AC) const {
+    if (auto *TRC = getTrailingRequiresClause())
+      AC.push_back(TRC);
+  }
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 

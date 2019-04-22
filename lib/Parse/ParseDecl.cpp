@@ -1978,6 +1978,10 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     }
   }
 
+  ExprResult TrailingRequiresClause;
+  if (Tok.is(tok::kw_requires))
+    ParseTrailingRequiresClause(D);
+
   // Check to see if we have a function *definition* which must have a body.
   if (D.isFunctionDeclarator() &&
       // Look at the next token to make sure that this isn't a function
@@ -2207,6 +2211,13 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
       ThisDecl = nullptr;
     }
   };
+
+  // C++2a [dcl.decl]p1
+  //    init-declarator:
+  //	      declarator initializer[opt]
+  //        declarator requires-clause
+  if (Tok.is(tok::kw_requires))
+    ParseTrailingRequiresClause(D);
 
   // Inform the current actions module that we just parsed this declarator.
   Decl *ThisDecl = nullptr;
@@ -5878,6 +5889,28 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       PrototypeScope.Exit();
     } else if (Tok.is(tok::l_square)) {
       ParseBracketDeclarator(D);
+    } else if (Tok.is(tok::kw_requires)) {
+      if (D.hasGroupingParens())
+        // This declarator is declaring a function, but the requires clause is
+        // in the wrong place:
+        //   void (f() requires true);
+        // instead of
+        //   void f() requires true;
+        // or
+        //   void (f()) requires true;
+        Diag(Tok, diag::err_requires_clause_inside_parens);
+      else
+        // This requires clause is in the right place, but will be parsed later
+        // as part of the init-declarator, member-declarator or
+        // function-definition.
+        break;
+      ConsumeToken();
+      ExprResult TrailingRequiresClause = Actions.CorrectDelayedTyposInExpr(
+          ParseConstraintLogicalOrExpression());
+      if (TrailingRequiresClause.isUsable() && D.isFunctionDeclarator() &&
+          !D.hasTrailingRequiresClause())
+        // We're already ill-formed if we got here but we'll accept it anyway.
+        D.setTrailingRequiresClause(TrailingRequiresClause.get());
     } else {
       break;
     }
@@ -6071,7 +6104,8 @@ void Parser::ParseParenDeclarator(Declarator &D) {
 ///
 /// For C++, after the parameter-list, it also parses the cv-qualifier-seq[opt],
 /// (C++11) ref-qualifier[opt], exception-specification[opt],
-/// (C++11) attribute-specifier-seq[opt], and (C++11) trailing-return-type[opt].
+/// (C++11) attribute-specifier-seq[opt], (C++11) trailing-return-type[opt] and
+/// (C++2a) the trailing requires-clause.
 ///
 /// [C++11] exception-specification:
 ///           dynamic-exception-specification
@@ -6456,6 +6490,16 @@ void Parser::ParseParameterDeclarationClause(
 
     // Parse GNU attributes, if present.
     MaybeParseGNUAttributes(ParmDeclarator);
+
+    if (Tok.is(tok::kw_requires)) {
+      // User tried to define a requires clause in a parameter declaration,
+      // which is surely not a function declaration.
+      // void f(int (*g)(int, int) requires true);
+      Diag(Tok,
+           diag::err_requires_clause_on_declarator_not_declaring_a_function);
+      ConsumeToken();
+      Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());
+    }
 
     // Remember this parsed parameter in ParamInfo.
     IdentifierInfo *ParmII = ParmDeclarator.getIdentifier();

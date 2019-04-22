@@ -3026,10 +3026,12 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
   TypeSourceInfo *TInfo;
   SourceLocation ToInnerLocStart, ToEndLoc;
   NestedNameSpecifierLoc ToQualifierLoc;
+  Expr *TrailingRequiresClause;
   if (auto Imp = importSeq(
       FromTy, D->getTypeSourceInfo(), D->getInnerLocStart(),
-      D->getQualifierLoc(), D->getEndLoc()))
-    std::tie(T, TInfo, ToInnerLocStart, ToQualifierLoc, ToEndLoc) = *Imp;
+      D->getQualifierLoc(), D->getEndLoc(), D->getTrailingRequiresClause()))
+    std::tie(T, TInfo, ToInnerLocStart, ToQualifierLoc, ToEndLoc,
+             TrailingRequiresClause) = *Imp;
   else
     return Imp.takeError();
 
@@ -3049,7 +3051,8 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
         ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
         ToInnerLocStart, NameInfo, T, TInfo,
         FromConstructor->isExplicit(),
-        D->isInlineSpecified(), D->isImplicit(), D->isConstexpr()))
+        D->isInlineSpecified(), D->isImplicit(), D->isConstexpr(),
+        InheritedConstructor(), TrailingRequiresClause))
       return ToFunction;
   } else if (CXXDestructorDecl *FromDtor = dyn_cast<CXXDestructorDecl>(D)) {
 
@@ -3067,7 +3070,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     if (GetImportedOrCreateDecl<CXXDestructorDecl>(
         ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
         ToInnerLocStart, NameInfo, T, TInfo, D->isInlineSpecified(),
-        D->isImplicit()))
+        D->isImplicit(), TrailingRequiresClause))
       return ToFunction;
 
     CXXDestructorDecl *ToDtor = cast<CXXDestructorDecl>(ToFunction);
@@ -3078,19 +3081,22 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     if (GetImportedOrCreateDecl<CXXConversionDecl>(
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, D->isInlineSpecified(),
-            FromConversion->isExplicit(), D->isConstexpr(), SourceLocation()))
+            FromConversion->isExplicit(), D->isConstexpr(), SourceLocation(),
+            TrailingRequiresClause))
       return ToFunction;
   } else if (auto *Method = dyn_cast<CXXMethodDecl>(D)) {
     if (GetImportedOrCreateDecl<CXXMethodDecl>(
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, Method->getStorageClass(),
-            Method->isInlineSpecified(), D->isConstexpr(), SourceLocation()))
+            Method->isInlineSpecified(), D->isConstexpr(), SourceLocation(),
+            TrailingRequiresClause))
       return ToFunction;
   } else {
     if (GetImportedOrCreateDecl(ToFunction, D, Importer.getToContext(), DC,
                                 ToInnerLocStart, NameInfo, T, TInfo,
                                 D->getStorageClass(), D->isInlineSpecified(),
-                                D->hasWrittenPrototype(), D->isConstexpr()))
+                                D->hasWrittenPrototype(), D->isConstexpr(),
+                                TrailingRequiresClause))
       return ToFunction;
   }
 

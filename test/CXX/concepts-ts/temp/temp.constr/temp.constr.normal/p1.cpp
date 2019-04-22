@@ -8,9 +8,11 @@ namespace maybe_incorrect_args {
   // they originate from different source-level constructs, they do not subsume
   // each other.
   template<typename... Ts> requires C<Ts...>
+  // expected-note@-1{{'C<Ts...>' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
   struct A {}; // expected-note{{template is declared here}}
 
   template<typename... Ts> requires C<Ts...> && true
+  // expected-note@-1{{and here}}
   struct A<Ts...> {}; // expected-error{{class template partial specialization is not more specialized than the primary template}}
 }
 
