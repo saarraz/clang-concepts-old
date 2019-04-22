@@ -4895,14 +4895,11 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
                                  unsigned NumCallArguments2) {
 
   auto JudgeByConstraints = [&] () -> FunctionTemplateDecl * {
-    bool MoreConstrained1 = IsMoreConstrained(FT1,
-                                              FT1->getAssociatedConstraints(),
-                                              FT2,
-                                              FT2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(FT2,
-                                              FT2->getAssociatedConstraints(),
-                                              FT1,
-                                              FT1->getAssociatedConstraints());
+    llvm::SmallVector<const Expr *, 3> AC1, AC2;
+    FT1->getAssociatedConstraints(AC1);
+    FT2->getAssociatedConstraints(AC2);
+    bool MoreConstrained1 = IsMoreConstrained(FT1, AC1, FT2, AC2);
+    bool MoreConstrained2 = IsMoreConstrained(FT2, AC2, FT1, AC1);
     if (MoreConstrained1 == MoreConstrained2)
       return nullptr;
     return MoreConstrained1 ? FT1 : FT2;
@@ -5123,14 +5120,11 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
   if (Better1 == Better2) {
-    bool MoreConstrained1 = IsMoreConstrained(PS1,
-                                              PS1->getAssociatedConstraints(),
-                                              PS2,
-                                              PS2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(PS2,
-                                              PS2->getAssociatedConstraints(),
-                                              PS1,
-                                              PS1->getAssociatedConstraints());
+    llvm::SmallVector<const Expr *, 3> AC1, AC2;
+    PS1->getAssociatedConstraints(AC1);
+    PS2->getAssociatedConstraints(AC2);
+    bool MoreConstrained1 = IsMoreConstrained(PS1, AC1, PS2, AC2);
+    bool MoreConstrained2 = IsMoreConstrained(PS2, AC2, PS1, AC1);
     if (MoreConstrained1 == MoreConstrained2)
       return nullptr;
     return MoreConstrained1 ? PS1 : PS2;
@@ -5145,14 +5139,13 @@ bool Sema::isMoreSpecializedThanPrimary(
   QualType PrimaryT = Primary->getInjectedClassNameSpecialization();
   QualType PartialT = Spec->getInjectedSpecializationType();
   auto JudgeByConstraints = [&] {
-    bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
-                                            Primary->getAssociatedConstraints(),
-                                            Spec,
-                                            Spec->getAssociatedConstraints());
-    bool MoreConstrainedSpec = IsMoreConstrained(Spec,
-                                           Spec->getAssociatedConstraints(),
-                                           Primary,
-                                           Primary->getAssociatedConstraints());
+    llvm::SmallVector<const Expr *, 3> PrimaryAC, SpecAC;
+    Primary->getAssociatedConstraints(PrimaryAC);
+    Spec->getAssociatedConstraints(SpecAC);
+    bool MoreConstrainedPrimary = IsMoreConstrained(Primary, PrimaryAC, Spec,
+                                                    SpecAC);
+    bool MoreConstrainedSpec = IsMoreConstrained(Spec, SpecAC, Primary,
+                                                 PrimaryAC);
     if (MoreConstrainedPrimary == MoreConstrainedSpec)
       return false;
     return MoreConstrainedSpec;
@@ -5187,14 +5180,11 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
   if (Better1 == Better2) {
-    bool MoreConstrained1 = IsMoreConstrained(PS1,
-                                              PS1->getAssociatedConstraints(),
-                                              PS2,
-                                              PS2->getAssociatedConstraints());
-    bool MoreConstrained2 = IsMoreConstrained(PS2,
-                                              PS2->getAssociatedConstraints(),
-                                              PS1,
-                                              PS1->getAssociatedConstraints());
+    llvm::SmallVector<const Expr *, 3> AC1, AC2;
+    PS1->getAssociatedConstraints(AC1);
+    PS2->getAssociatedConstraints(AC2);
+    bool MoreConstrained1 = IsMoreConstrained(PS1, AC1, PS2, AC2);
+    bool MoreConstrained2 = IsMoreConstrained(PS2, AC2, PS1, AC1);
     if (MoreConstrained1 == MoreConstrained2) {
       return nullptr;
     }
@@ -5221,17 +5211,16 @@ bool Sema::isMoreSpecializedThanPrimary(
       CanonTemplate, Spec->getTemplateArgs().asArray());
 
   auto JudgeByConstraints = [&] {
-      bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
-                                            Primary->getAssociatedConstraints(),
-                                            Spec,
-                                            Spec->getAssociatedConstraints());
-      bool MoreConstrainedSpec = IsMoreConstrained(Spec,
-                                           Spec->getAssociatedConstraints(),
-                                           Primary,
-                                           Primary->getAssociatedConstraints());
-      if (MoreConstrainedPrimary == MoreConstrainedSpec)
-        return false;
-      return MoreConstrainedSpec;
+    llvm::SmallVector<const Expr *, 3> PrimaryAC, SpecAC;
+    Primary->getAssociatedConstraints(PrimaryAC);
+    Spec->getAssociatedConstraints(SpecAC);
+    bool MoreConstrainedPrimary = IsMoreConstrained(Primary, PrimaryAC, Spec,
+                                                    SpecAC);
+    bool MoreConstrainedSpec = IsMoreConstrained(Spec, SpecAC, Primary,
+                                                 PrimaryAC);
+    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+      return false;
+    return MoreConstrainedSpec;
   };
 
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))

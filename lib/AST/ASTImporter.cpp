@@ -5020,11 +5020,20 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
   ClassTemplateSpecializationDecl *PrevDecl = nullptr;
   ClassTemplatePartialSpecializationDecl *PartialSpec =
             dyn_cast<ClassTemplatePartialSpecializationDecl>(D);
-  if (PartialSpec)
+  llvm::SmallVector<const Expr *, 3> PartialSpecAC;
+  if (PartialSpec) {
+    PartialSpec->getAssociatedConstraints(PartialSpecAC);
+    // Import associated constraints into the "To" context.
+    for (const Expr *&Constraint : PartialSpecAC) {
+      ExpectedExpr ConstraintOrErr = import(Constraint);
+      if (!ConstraintOrErr)
+        return ConstraintOrErr.takeError();
+      Constraint = *ConstraintOrErr;
+    }
     PrevDecl =
-        ClassTemplate->findPartialSpecialization(TemplateArgs,
-            PartialSpec->getAssociatedConstraints(), InsertPos);
-  else
+        ClassTemplate->findPartialSpecialization(TemplateArgs, PartialSpecAC,
+                                                 InsertPos);
+  } else
     PrevDecl = ClassTemplate->findSpecialization(TemplateArgs, InsertPos);
 
   if (PrevDecl) {
@@ -5092,8 +5101,8 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
     // Update InsertPos, because preceding import calls may have invalidated
     // it by adding new specializations.
     auto *PartSpec = cast<ClassTemplatePartialSpecializationDecl>(D2);
-    if (!ClassTemplate->findPartialSpecialization(TemplateArgs,
-            PartSpec->getAssociatedConstraints(), InsertPos))
+    if (!ClassTemplate->findPartialSpecialization(TemplateArgs, PartialSpecAC,
+                                                  InsertPos))
       // Add this partial specialization to the class template.
       ClassTemplate->AddPartialSpecialization(PartSpec, InsertPos);
 

@@ -1987,8 +1987,9 @@ public:
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
-            getASTContext());
+    llvm::SmallVector<const Expr *, 3> AC;
+    getAssociatedConstraints(AC);
+    Profile(ID, getTemplateArgs().asArray(), AC, getASTContext());
   }
 
   static void
@@ -2824,8 +2825,9 @@ public:
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
-            getASTContext());
+    llvm::SmallVector<const Expr *, 3> AC;
+    getAssociatedConstraints(AC);
+    Profile(ID, getTemplateArgs().asArray(), AC, getASTContext());
   }
 
   static void
