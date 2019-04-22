@@ -1049,11 +1049,11 @@ NamedDecl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
   // Check that we have valid decl-specifiers specified.
   auto CheckValidDeclSpecifiers = [this, &D] {
     // C++ [temp.param]
-    // p1
+    // p1 
     //   template-parameter:
     //     ...
     //     parameter-declaration
-    // p2
+    // p2 
     //   ... A storage class shall not be specified in a template-parameter
     //   declaration.
     // [dcl.typedef]p1:
@@ -3767,7 +3767,9 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
     }
 
     if (isSameAsPrimaryTemplate(VarTemplate->getTemplateParameters(),
-                                Converted)) {
+                                Converted)
+        && (!Context.getLangOpts().ConceptsTS
+            || !TemplateParams->hasAssociatedConstraints())) {
       // C++ [temp.class.spec]p9b3:
       //
       //   -- The argument list of the specialization shall not be identical
@@ -3787,7 +3789,8 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
 
   if (IsPartialSpecialization)
     // FIXME: Template parameter list matters too
-    PrevDecl = VarTemplate->findPartialSpecialization(Converted, InsertPos);
+    PrevDecl = VarTemplate->findPartialSpecialization(Converted,
+                   TemplateParams->getAssociatedConstraints(), InsertPos);
   else
     PrevDecl = VarTemplate->findSpecialization(Converted, InsertPos);
 
@@ -6979,6 +6982,7 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                        bool Complain,
                                      Sema::TemplateParameterListEqualKind Kind,
                                        SourceLocation TemplateArgLoc) {
+  // TODO: Concepts: Check constrained-parameter constraints here.
   // Check the actual kind (type, non-type, template).
   if (Old->getKind() != New->getKind()) {
     if (Complain) {
@@ -7688,7 +7692,8 @@ DeclResult Sema::ActOnClassTemplateSpecialization(
 
   if (isPartialSpecialization)
     // FIXME: Template parameter list matters, too
-    PrevDecl = ClassTemplate->findPartialSpecialization(Converted, InsertPos);
+    PrevDecl = ClassTemplate->findPartialSpecialization(Converted,
+        TemplateParams->getAssociatedConstraints(), InsertPos);
   else
     PrevDecl = ClassTemplate->findSpecialization(Converted, InsertPos);
 
@@ -7712,7 +7717,9 @@ DeclResult Sema::ActOnClassTemplateSpecialization(
                                                       Converted);
 
     if (Context.hasSameType(CanonType,
-                        ClassTemplate->getInjectedClassNameSpecialization())) {
+                        ClassTemplate->getInjectedClassNameSpecialization())
+        && (!Context.getLangOpts().ConceptsTS
+            || !TemplateParams->hasAssociatedConstraints())) {
       // C++ [temp.class.spec]p9b3:
       //
       //   -- The argument list of the specialization shall not be identical
@@ -10323,3 +10330,9 @@ void Sema::checkPartialSpecializationVisibility(SourceLocation Loc,
                           MissingImportKind::PartialSpecialization,
                           /*Recover*/true);
 }
+
+    // p1
+    //   template-parameter:
+    //     ...
+    //     parameter-declaration
+    // p2

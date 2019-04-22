@@ -2233,11 +2233,13 @@ ASTDeclReader::VisitClassTemplateSpecializationDeclImpl(
 
 void ASTDeclReader::VisitClassTemplatePartialSpecializationDecl(
                                     ClassTemplatePartialSpecializationDecl *D) {
-  RedeclarableResult Redecl = VisitClassTemplateSpecializationDeclImpl(D);
-
+  // We need to read the template params first because redeclarable is going to
+  // need them for profiling
   TemplateParameterList *Params = Record.readTemplateParameterList();
   D->TemplateParams = Params;
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
+
+  RedeclarableResult Redecl = VisitClassTemplateSpecializationDeclImpl(D);
 
   // These are read/set from/to the first declaration.
   if (ThisDeclID == Redecl.getFirstID()) {
@@ -2334,11 +2336,11 @@ ASTDeclReader::VisitVarTemplateSpecializationDeclImpl(
 ///        using Template(Partial)SpecializationDecl as input type.
 void ASTDeclReader::VisitVarTemplatePartialSpecializationDecl(
     VarTemplatePartialSpecializationDecl *D) {
-  RedeclarableResult Redecl = VisitVarTemplateSpecializationDeclImpl(D);
-
   TemplateParameterList *Params = Record.readTemplateParameterList();
   D->TemplateParams = Params;
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
+
+  RedeclarableResult Redecl = VisitVarTemplateSpecializationDeclImpl(D);
 
   // These are read/set from/to the first declaration.
   if (ThisDeclID == Redecl.getFirstID()) {

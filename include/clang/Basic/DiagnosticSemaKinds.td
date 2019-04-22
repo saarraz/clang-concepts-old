@@ -2465,11 +2465,9 @@ def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
   "%select{and |because }0%1 does not satisfy %2">;
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
   "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
-def err_could_not_normalize_ill_formed_constraint : Error<
-  "required expansion of concept specialization %0 failed, substituted "
-  "expression would be illegal">;
-def note_could_not_normalize_ill_formed_constraint_reason : Note<
-  "because: %0">;
+def note_could_not_normalize_argument_substitution_failed : Note<
+  "when substituting into %0 %1. Make sure concept arguments are "
+  "valid for any substitution">;
 
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;

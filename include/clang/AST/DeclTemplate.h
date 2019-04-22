@@ -736,9 +736,10 @@ protected:
 
   void loadLazySpecializationsImpl() const;
 
-  template <class EntryType> typename SpecEntryTraits<EntryType>::DeclType*
+  template <class EntryType, typename... ProfileArguments>
+  typename SpecEntryTraits<EntryType>::DeclType*
   findSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
-                         ArrayRef<TemplateArgument> Args, void *&InsertPos);
+                         void *&InsertPos, ProfileArguments... ProfileArgs);
 
   template <class Derived, class EntryType>
   void addSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
@@ -1985,7 +1986,21 @@ public:
              ->getInjectedSpecializationType();
   }
 
-  // FIXME: Add Profile support!
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
+            getASTContext());
+  }
+
+  static void
+  Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
+          ArrayRef<const Expr *> AssociatedConstraints, ASTContext &Context) {
+    ID.AddInteger(TemplateArgs.size());
+    for (const TemplateArgument &TemplateArg : TemplateArgs)
+      TemplateArg.Profile(ID, Context);
+    ID.AddInteger(AssociatedConstraints.size());
+    for (const Expr *Constraint : AssociatedConstraints)
+      Constraint->Profile(ID, Context, /*Canonical=*/true);
+  }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
 
@@ -2109,7 +2124,9 @@ public:
   /// Return the partial specialization with the provided arguments if it
   /// exists, otherwise return the insertion point.
   ClassTemplatePartialSpecializationDecl *
-  findPartialSpecialization(ArrayRef<TemplateArgument> Args, void *&InsertPos);
+  findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                            ArrayRef<const Expr *> AssociatedConstraints,
+                            void *&InsertPos);
 
   /// Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.
@@ -2806,6 +2823,22 @@ public:
     return First->InstantiatedFromMember.setInt(true);
   }
 
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    Profile(ID, getTemplateArgs().asArray(), getAssociatedConstraints(),
+            getASTContext());
+  }
+
+  static void
+  Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
+          ArrayRef<const Expr *> AssociatedConstraints, ASTContext &Context) {
+    ID.AddInteger(TemplateArgs.size());
+    for (const TemplateArgument &TemplateArg : TemplateArgs)
+      TemplateArg.Profile(ID, Context);
+    ID.AddInteger(AssociatedConstraints.size());
+    for (const Expr *Constraint : AssociatedConstraints)
+      Constraint->Profile(ID, Context, /*Canonical=*/true);
+  }
+
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
 
   static bool classofKind(Kind K) {
@@ -2924,7 +2957,9 @@ public:
   /// Return the partial specialization with the provided arguments if it
   /// exists, otherwise return the insertion point.
   VarTemplatePartialSpecializationDecl *
-  findPartialSpecialization(ArrayRef<TemplateArgument> Args, void *&InsertPos);
+  findPartialSpecialization(ArrayRef<TemplateArgument> Args,
+                            ArrayRef<const Expr *> AssociatedConstraints,
+                            void *&InsertPos);
 
   /// Insert the specified partial specialization knowing that it is not
   /// already in. InsertPos must be obtained from findPartialSpecialization.

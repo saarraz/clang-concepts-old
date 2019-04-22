@@ -5014,14 +5014,16 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
       D->getTemplateArgs().data(), D->getTemplateArgs().size(), TemplateArgs))
     return std::move(Err);
 
-  // Try to find an existing specialization with these template arguments.
+  // Try to find an existing specialization with these template arguments and
+  // constraints.
   void *InsertPos = nullptr;
   ClassTemplateSpecializationDecl *PrevDecl = nullptr;
   ClassTemplatePartialSpecializationDecl *PartialSpec =
             dyn_cast<ClassTemplatePartialSpecializationDecl>(D);
   if (PartialSpec)
     PrevDecl =
-        ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos);
+        ClassTemplate->findPartialSpecialization(TemplateArgs,
+            PartialSpec->getAssociatedConstraints(), InsertPos);
   else
     PrevDecl = ClassTemplate->findSpecialization(TemplateArgs, InsertPos);
 
@@ -5089,10 +5091,11 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
 
     // Update InsertPos, because preceding import calls may have invalidated
     // it by adding new specializations.
-    if (!ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos))
+    auto *PartSpec = cast<ClassTemplatePartialSpecializationDecl>(D2);
+    if (!ClassTemplate->findPartialSpecialization(TemplateArgs,
+            PartSpec->getAssociatedConstraints(), InsertPos))
       // Add this partial specialization to the class template.
-      ClassTemplate->AddPartialSpecialization(
-          cast<ClassTemplatePartialSpecializationDecl>(D2), InsertPos);
+      ClassTemplate->AddPartialSpecialization(PartSpec, InsertPos);
 
   } else { // Not a partial specialization.
     if (GetImportedOrCreateDecl(

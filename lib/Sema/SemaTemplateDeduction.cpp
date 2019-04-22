@@ -2709,6 +2709,23 @@ struct IsPartialSpecialization<VarTemplatePartialSpecializationDecl> {
   static constexpr bool value = true;
 };
 
+template<typename TemplateDeclT>
+static Sema::TemplateDeductionResult
+CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
+                                ArrayRef<TemplateArgument> DeducedArgs,
+                                TemplateDeductionInfo& Info) {
+  llvm::SmallVector<const Expr *, 3> AssociatedConstraints;
+  Template->getAssociatedConstraints(AssociatedConstraints);
+  if (S.CheckConstraintSatisfaction(Template, AssociatedConstraints,
+                                    DeducedArgs, Info.getLocation(),
+                                    Info.AssociatedConstraintsSatisfaction)
+      || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
+    Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
+    return Sema::TDK_ConstraintsNotSatisfied;
+  }
+  return Sema::TDK_Success;
+}
+
 /// Complete template argument deduction for a partial specialization.
 template <typename T>
 static typename std::enable_if<IsPartialSpecialization<T>::value,
@@ -2786,6 +2803,9 @@ FinishTemplateArgumentDeduction(
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
+  if (auto Result = CheckDeducedArgumentConstraints(S, Partial, Builder, Info))
+    return Result;
+
   return Sema::TDK_Success;
 }
 
@@ -2828,23 +2848,10 @@ static Sema::TemplateDeductionResult FinishTemplateArgumentDeduction(
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
-  return Sema::TDK_Success;
-}
+  if (auto Result = CheckDeducedArgumentConstraints(S, Template, Builder,
+                                                    Info))
+    return Result;
 
-template<typename TemplateDeclT>
-static Sema::TemplateDeductionResult
-CheckDeducedArgumentConstraints(Sema& S, TemplateDeclT *Template,
-                                ArrayRef<TemplateArgument> DeducedArgs,
-                                TemplateDeductionInfo& Info) {
-  llvm::SmallVector<const Expr *, 3> AssociatedConstraints;
-  Template->getAssociatedConstraints(AssociatedConstraints);
-  if (S.CheckConstraintSatisfaction(Template, AssociatedConstraints,
-                                    DeducedArgs, Info.getLocation(),
-                                    Info.AssociatedConstraintsSatisfaction)
-      || !Info.AssociatedConstraintsSatisfaction.IsSatisfied) {
-    Info.reset(TemplateArgumentList::CreateCopy(S.Context, DeducedArgs));
-    return Sema::TDK_ConstraintsNotSatisfied;
-  }
   return Sema::TDK_Success;
 }
 
@@ -2887,10 +2894,6 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
 
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
-    return Result;
-
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
 }
@@ -2931,10 +2934,6 @@ Sema::DeduceTemplateArguments(VarTemplatePartialSpecializationDecl *Partial,
 
   if (Trap.hasErrorOccurred())
     return Sema::TDK_SubstitutionFailure;
-
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, Partial, DeducedArgs, Info))
-    return Result;
 
   return ::FinishTemplateArgumentDeduction(
       *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
@@ -3044,12 +3043,6 @@ Sema::SubstituteExplicitTemplateArguments(
   TemplateArgumentList *ExplicitArgumentList
     = TemplateArgumentList::CreateCopy(Context, Builder);
   Info.setExplicitArgs(ExplicitArgumentList);
-
-  if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, FunctionTemplate,
-                                          ExplicitArgumentList->asArray(),
-                                          Info))
-    return Result;
 
   // Template argument deduction and the final substitution should be
   // done in the context of the templated declaration.  Explicit
@@ -3364,7 +3357,7 @@ Sema::TemplateDeductionResult Sema::FinishTemplateArgumentDeduction(
     return Result;
 
   if (TemplateDeductionResult Result
-        = CheckDeducedArgumentConstraints(*this, FunctionTemplate, DeducedArgs,
+        = CheckDeducedArgumentConstraints(*this, FunctionTemplate, Builder,
                                           Info))
     return Result;
 
@@ -4900,6 +4893,21 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
                                  TemplatePartialOrderingContext TPOC,
                                  unsigned NumCallArguments1,
                                  unsigned NumCallArguments2) {
+
+  auto JudgeByConstraints = [&] () -> FunctionTemplateDecl * {
+    bool MoreConstrained1 = IsMoreConstrained(FT1,
+                                              FT1->getAssociatedConstraints(),
+                                              FT2,
+                                              FT2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(FT2,
+                                              FT2->getAssociatedConstraints(),
+                                              FT1,
+                                              FT1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2)
+      return nullptr;
+    return MoreConstrained1 ? FT1 : FT2;
+  };
+
   bool Better1 = isAtLeastAsSpecializedAs(*this, Loc, FT1, FT2, TPOC,
                                           NumCallArguments1);
   bool Better2 = isAtLeastAsSpecializedAs(*this, Loc, FT2, FT1, TPOC,
@@ -4909,7 +4917,7 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
     return Better1 ? FT1 : FT2;
 
   if (!Better1 && !Better2) // Neither is better than the other
-    return nullptr;
+    return JudgeByConstraints();
 
   // FIXME: This mimics what GCC implements, but doesn't match up with the
   // proposed resolution for core issue 692. This area needs to be sorted out,
@@ -4919,7 +4927,7 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
   if (Variadic1 != Variadic2)
     return Variadic1? FT2 : FT1;
 
-  return nullptr;
+  return JudgeByConstraints();
 }
 
 /// Determine if the two templates are equivalent.
@@ -5044,7 +5052,6 @@ template<typename TemplateLikeDecl>
 static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
                                      TemplateLikeDecl *P2,
                                      TemplateDeductionInfo &Info) {
-  // TODO: Concepts: Regard constraints
   // C++ [temp.class.order]p1:
   //   For two class template partial specializations, the first is at least as
   //   specialized as the second if, given the following rewrite to two
@@ -5115,8 +5122,19 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better1 = isAtLeastAsSpecializedAs(*this, PT1, PT2, PS2, Info);
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
-  if (Better1 == Better2)
-    return nullptr;
+  if (Better1 == Better2) {
+    bool MoreConstrained1 = IsMoreConstrained(PS1,
+                                              PS1->getAssociatedConstraints(),
+                                              PS2,
+                                              PS2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(PS2,
+                                              PS2->getAssociatedConstraints(),
+                                              PS1,
+                                              PS1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2)
+      return nullptr;
+    return MoreConstrained1 ? PS1 : PS2;
+  }
 
   return Better1 ? PS1 : PS2;
 }
@@ -5126,11 +5144,24 @@ bool Sema::isMoreSpecializedThanPrimary(
   ClassTemplateDecl *Primary = Spec->getSpecializedTemplate();
   QualType PrimaryT = Primary->getInjectedClassNameSpecialization();
   QualType PartialT = Spec->getInjectedSpecializationType();
+  auto JudgeByConstraints = [&] {
+    bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
+                                            Primary->getAssociatedConstraints(),
+                                            Spec,
+                                            Spec->getAssociatedConstraints());
+    bool MoreConstrainedSpec = IsMoreConstrained(Spec,
+                                           Spec->getAssociatedConstraints(),
+                                           Primary,
+                                           Primary->getAssociatedConstraints());
+    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+      return false;
+    return MoreConstrainedSpec;
+  };
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
-    return false;
-  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)) {
+    return JudgeByConstraints();
+  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)){
     Info.clearSFINAEDiagnostic();
-    return false;
+    return JudgeByConstraints();
   }
   return true;
 }
@@ -5155,8 +5186,20 @@ Sema::getMoreSpecializedPartialSpecialization(
   bool Better1 = isAtLeastAsSpecializedAs(*this, PT1, PT2, PS2, Info);
   bool Better2 = isAtLeastAsSpecializedAs(*this, PT2, PT1, PS1, Info);
 
-  if (Better1 == Better2)
-    return nullptr;
+  if (Better1 == Better2) {
+    bool MoreConstrained1 = IsMoreConstrained(PS1,
+                                              PS1->getAssociatedConstraints(),
+                                              PS2,
+                                              PS2->getAssociatedConstraints());
+    bool MoreConstrained2 = IsMoreConstrained(PS2,
+                                              PS2->getAssociatedConstraints(),
+                                              PS1,
+                                              PS1->getAssociatedConstraints());
+    if (MoreConstrained1 == MoreConstrained2) {
+      return nullptr;
+    }
+    return MoreConstrained1 ? PS1 : PS2;
+  }
 
   return Better1 ? PS1 : PS2;
 }
@@ -5176,11 +5219,26 @@ bool Sema::isMoreSpecializedThanPrimary(
       CanonTemplate, PrimaryArgs);
   QualType PartialT = Context.getTemplateSpecializationType(
       CanonTemplate, Spec->getTemplateArgs().asArray());
+
+  auto JudgeByConstraints = [&] {
+      bool MoreConstrainedPrimary = IsMoreConstrained(Primary,
+                                            Primary->getAssociatedConstraints(),
+                                            Spec,
+                                            Spec->getAssociatedConstraints());
+      bool MoreConstrainedSpec = IsMoreConstrained(Spec,
+                                           Spec->getAssociatedConstraints(),
+                                           Primary,
+                                           Primary->getAssociatedConstraints());
+      if (MoreConstrainedPrimary == MoreConstrainedSpec)
+        return false;
+      return MoreConstrainedSpec;
+  };
+
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
-    return false;
-  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)) {
+    return JudgeByConstraints();
+  if (isAtLeastAsSpecializedAs(*this, PrimaryT, PartialT, Spec, Info)){
     Info.clearSFINAEDiagnostic();
-    return false;
+    return JudgeByConstraints();
   }
   return true;
 }
