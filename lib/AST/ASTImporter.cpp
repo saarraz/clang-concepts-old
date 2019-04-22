@@ -5100,11 +5100,11 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
 
     // Update InsertPos, because preceding import calls may have invalidated
     // it by adding new specializations.
-    auto *PartSpec = cast<ClassTemplatePartialSpecializationDecl>(D2);
+    auto *PartSpec2 = cast<ClassTemplatePartialSpecializationDecl>(D2);
     if (!ClassTemplate->findPartialSpecialization(TemplateArgs, PartialSpecAC,
                                                   InsertPos))
       // Add this partial specialization to the class template.
-      ClassTemplate->AddPartialSpecialization(PartSpec, InsertPos);
+      ClassTemplate->AddPartialSpecialization(PartSpec2, InsertPos);
 
   } else { // Not a partial specialization.
     if (GetImportedOrCreateDecl(
