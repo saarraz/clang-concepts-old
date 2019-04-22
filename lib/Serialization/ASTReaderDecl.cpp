@@ -2353,7 +2353,7 @@ void ASTDeclReader::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
 
   D->setDeclaredWithTypename(Record.readInt());
 
-  // TODO: Concepts: Constrained parameters
+  // TODO: Concepts: Immediately introduced constraint
   if (Record.readInt())
     D->setDefaultArgument(GetTypeSourceInfo());
 }
@@ -2373,7 +2373,6 @@ void ASTDeclReader::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
   } else {
     // Rest of NonTypeTemplateParmDecl.
     D->ParameterPack = Record.readInt();
-    // TODO: Concepts: Constrained parameters
     if (Record.readInt())
       D->setDefaultArgument(Record.readExpr());
   }
@@ -2391,7 +2390,6 @@ void ASTDeclReader::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
       Data[I] = Record.readTemplateParameterList();
   } else {
     // Rest of TemplateTemplateParmDecl.
-    // TODO: Concepts: Constrained parameters
     D->ParameterPack = Record.readInt();
     if (Record.readInt())
       D->setDefaultArgument(Reader.getContext(),

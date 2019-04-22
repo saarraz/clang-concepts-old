@@ -19,7 +19,7 @@ struct B {
     static int A;
 };
 
-template <typename U> requires !bool(U())  // expected-error{{associated constraints differ in template redeclaration}}
+template <typename U> requires !bool(U())  // expected-error{{requires clause differs in template redeclaration}}
 int B::A = int(U());
 
 } // end namespace diag

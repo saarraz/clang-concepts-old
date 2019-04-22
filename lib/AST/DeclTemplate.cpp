@@ -138,17 +138,15 @@ static void AdoptTemplateParameterList(TemplateParameterList *Params,
   }
 }
 
-llvm::SmallVector<const Expr *, 3>
-TemplateParameterList::getAssociatedConstraints() const {
-  // TODO: Concepts: Collect constrained parameter constraints.
-  llvm::SmallVector<const Expr *, 3> Constraints;
+void TemplateParameterList::
+getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const {
+  // TODO: Concepts: Collect immediately-introduced constraints.
   if (HasRequiresClause)
-    Constraints.push_back(getRequiresClause());
-  return Constraints;
+    AC.push_back(getRequiresClause());
 }
 
 bool TemplateParameterList::hasAssociatedConstraints() const {
-  // TODO: Concepts: Regard constrained parameter constraints.
+  // TODO: Concepts: Regard immediately-introduced constraints.
   return HasRequiresClause;
 }
 
@@ -171,10 +169,10 @@ TemplateDecl::TemplateDecl(Kind DK, DeclContext *DC, SourceLocation L,
 
 void TemplateDecl::anchor() {}
 
-llvm::SmallVector<const Expr *, 3>
-TemplateDecl::getAssociatedConstraints() const {
+void TemplateDecl::
+getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const {
   // TODO: Concepts: Append function trailing requires clause.
-  return TemplateParams->getAssociatedConstraints();
+  TemplateParams->getAssociatedConstraints(AC);
 }
 
 bool TemplateDecl::hasAssociatedConstraints() const {

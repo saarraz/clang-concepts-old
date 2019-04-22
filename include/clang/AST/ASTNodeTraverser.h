@@ -219,6 +219,9 @@ public:
 
     for (const auto &TP : *TPL)
       Visit(TP);
+
+    if (const Expr *RC = TPL->getRequiresClause())
+      Visit(RC);
   }
 
   void dumpTemplateArgumentListInfo(const TemplateArgumentListInfo &TALI) {

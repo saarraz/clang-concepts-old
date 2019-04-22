@@ -5769,11 +5769,11 @@ public:
                                          Expr *ConstraintExpr,
                                          bool &IsSatisfied);
 
-  /// \brief Check that the associated constraints of a template declaration
-  /// match the associated constraints of an older declaration of which it is a
+  /// Check that the associated constraints of a template declaration match the
+  /// associated constraints of an older declaration of which it is a
   /// redeclaration
-  bool CheckRedeclarationConstraintMatch(ArrayRef<const Expr *> OldAC,
-                                         ArrayRef<const Expr *> NewAC);
+  bool CheckRedeclarationConstraintMatch(TemplateParameterList *Old,
+                                         TemplateParameterList *New);
 
   // ParseObjCStringLiteral - Parse Objective-C string literals.
   ExprResult ParseObjCStringLiteral(SourceLocation *AtLocs,

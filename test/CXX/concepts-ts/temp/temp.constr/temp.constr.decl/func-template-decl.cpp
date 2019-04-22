@@ -11,18 +11,24 @@ int A();
 
 namespace diag {
 
-template <typename T> requires true // expected-note{{previous template declaration is here}}
-int A();
-template <typename T> int A(); // expected-error{{associated constraints differ in template redeclaration}}
+namespace orig {
+  template <typename T> requires true
+  int A();
+  template <typename T>
+  int B();
+  template <typename T> requires true
+  int C();
+}
 
-template <typename T> int B(); // expected-note{{previous template declaration is here}}
-template <typename T> requires true // expected-error{{associated constraints differ in template redeclaration}}
-int B();
-
-template <typename T> requires true // expected-note{{previous template declaration is here}}
-int C();
-template <typename T> requires !0 // expected-error{{associated constraints differ in template redeclaration}}
-int C();
+template <typename T>
+int orig::A();
+// expected-error@-1{{out-of-line declaration of 'A' does not match any declaration in namespace 'diag::orig'}}
+template <typename T> requires true
+int orig::B();
+// expected-error@-1{{out-of-line declaration of 'B' does not match any declaration in namespace 'diag::orig'}}
+template <typename T> requires !0
+int orig::C();
+// expected-error@-1{{out-of-line declaration of 'C' does not match any declaration in namespace 'diag::orig'}}
 
 } // end namespace diag
 
@@ -42,11 +48,12 @@ namespace diag {
 
 template <unsigned N>
 struct TA {
-  template <template <unsigned> class TT> requires TT<N>::happy // expected-note{{previous template declaration is here}}
+  template <template <unsigned> class TT> requires TT<N>::happy
   int A();
 };
 
 template <unsigned N>
-template <template <unsigned> class TT> int TA<N>::A() { return sizeof(TT<N>); } // expected-error{{associated constraints differ in template redeclaration}}
+template <template <unsigned> class TT> int TA<N>::A() { return sizeof(TT<N>); }
+// expected-error@-1{{out-of-line definition of 'A' does not match any declaration in 'TA<N>'}}
 
 } // end namespace diag

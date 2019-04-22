@@ -2156,17 +2156,6 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
   if (OldParams)
     OldParam = OldParams->begin();
 
-  if (OldParams &&
-      !CheckRedeclarationConstraintMatch(OldParams->getAssociatedConstraints(),
-                                       NewParams->getAssociatedConstraints())) {
-    Diag(NewParams->getTemplateLoc(),
-         diag::err_template_different_associated_constraints);
-    Diag(OldParams->getTemplateLoc(),  diag::note_template_prev_declaration)
-        << /*declaration*/0;
-
-    Invalid = true;
-  }
-
   bool RemoveDefaultArguments = false;
   for (TemplateParameterList::iterator NewParam = NewParams->begin(),
                                     NewParamEnd = NewParams->end();
@@ -7054,6 +7043,9 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                             TemplateArgLoc);
   }
 
+  // TODO: Concepts: Match immediately-introduced-constraint for type
+  // constraints
+
   return true;
 }
 
@@ -7077,6 +7069,15 @@ void DiagnoseTemplateParameterListArityMismatch(Sema &S,
   S.Diag(Old->getTemplateLoc(), diag::note_template_prev_declaration)
     << (Kind != Sema::TPL_TemplateMatch)
     << SourceRange(Old->getTemplateLoc(), Old->getRAngleLoc());
+}
+
+static void
+DiagnoseTemplateParameterListRequiresClauseMismatch(Sema &S,
+                                                    TemplateParameterList *New,
+                                                    TemplateParameterList *Old){
+  S.Diag(New->getTemplateLoc(), diag::err_template_different_requires_clause);
+  S.Diag(Old->getTemplateLoc(),  diag::note_template_prev_declaration)
+      << /*declaration*/0;
 }
 
 /// Determine whether the given template parameter lists are
@@ -7166,6 +7167,27 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
                                                  TemplateArgLoc);
 
     return false;
+  }
+
+  if (Kind != TPL_TemplateTemplateArgumentMatch) {
+    const Expr *NewRC = New->getRequiresClause();
+    const Expr *OldRC = Old->getRequiresClause();
+    if (!NewRC != !OldRC) {
+      if (Complain)
+        DiagnoseTemplateParameterListRequiresClauseMismatch(*this, New, Old);
+      return false;
+    }
+
+    if (NewRC) {
+      llvm::FoldingSetNodeID OldRCID, NewRCID;
+      OldRC->Profile(OldRCID, Context, /*Canonical=*/true);
+      NewRC->Profile(NewRCID, Context, /*Canonical=*/true);
+      if (OldRCID != NewRCID) {
+        if (Complain)
+          DiagnoseTemplateParameterListRequiresClauseMismatch(*this, New, Old);
+        return false;
+      }
+    }
   }
 
   return true;

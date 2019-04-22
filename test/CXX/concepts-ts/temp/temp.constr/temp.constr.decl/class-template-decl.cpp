@@ -13,15 +13,15 @@ namespace diag {
 
 template <typename T> requires true // expected-note{{previous template declaration is here}}
 struct A;
-template <typename T> struct A; // expected-error{{associated constraints differ in template redeclaration}}
+template <typename T> struct A; // expected-error{{requires clause differs in template redeclaration}}
 
 template <typename T> struct B; // expected-note{{previous template declaration is here}}
-template <typename T> requires true // expected-error{{associated constraints differ in template redeclaration}}
+template <typename T> requires true // expected-error{{requires clause differs in template redeclaration}}
 struct B;
 
 template <typename T> requires true // expected-note{{previous template declaration is here}}
 struct C;
-template <typename T> requires !0 // expected-error{{associated constraints differ in template redeclaration}}
+template <typename T> requires !0 // expected-error{{requires clause differs in template redeclaration}}
 struct C;
 
 } // end namespace diag
@@ -57,11 +57,11 @@ struct TA {
 };
 
 template <unsigned N>
-template <template <unsigned> class TT> struct TA<N>::A { }; // expected-error{{associated constraints differ in template redeclaration}}
+template <template <unsigned> class TT> struct TA<N>::A { }; // expected-error{{requires clause differs in template redeclaration}}
 
 
 template <unsigned N>
-template <template <unsigned> class TT> requires TT<N + 1>::happy struct TA<N>::B { }; // expected-error{{associated constraints differ in template redeclaration}}
+template <template <unsigned> class TT> requires TT<N + 1>::happy struct TA<N>::B { }; // expected-error{{requires clause differs in template redeclaration}}
 
 template <unsigned N>
 struct TA<N>::AF {
