@@ -3787,11 +3787,12 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
   void *InsertPos = nullptr;
   VarTemplateSpecializationDecl *PrevDecl = nullptr;
 
-  if (IsPartialSpecialization)
+  if (IsPartialSpecialization) {
     // FIXME: Template parameter list matters too
-    PrevDecl = VarTemplate->findPartialSpecialization(Converted,
-                   TemplateParams->getAssociatedConstraints(), InsertPos);
-  else
+    SmallVector<const Expr *, 3> AC;
+    TemplateParams->getAssociatedConstraints(AC);
+    PrevDecl = VarTemplate->findPartialSpecialization(Converted, AC, InsertPos);
+  } else
     PrevDecl = VarTemplate->findSpecialization(Converted, InsertPos);
 
   VarTemplateSpecializationDecl *Specialization = nullptr;
@@ -7690,11 +7691,13 @@ DeclResult Sema::ActOnClassTemplateSpecialization(
   void *InsertPos = nullptr;
   ClassTemplateSpecializationDecl *PrevDecl = nullptr;
 
-  if (isPartialSpecialization)
+  if (isPartialSpecialization) {
     // FIXME: Template parameter list matters, too
-    PrevDecl = ClassTemplate->findPartialSpecialization(Converted,
-        TemplateParams->getAssociatedConstraints(), InsertPos);
-  else
+    SmallVector<const Expr *, 3> AC;
+    TemplateParams->getAssociatedConstraints(AC);
+    PrevDecl = ClassTemplate->findPartialSpecialization(Converted, AC,
+                                                        InsertPos);
+  } else
     PrevDecl = ClassTemplate->findSpecialization(Converted, InsertPos);
 
   ClassTemplateSpecializationDecl *Specialization = nullptr;
