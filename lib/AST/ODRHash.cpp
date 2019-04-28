@@ -374,6 +374,11 @@ public:
     }
     Hash.AddBoolean(D->isParameterPack());
 
+    const TypeConstraint *TC = D->getTypeConstraint();
+    Hash.AddBoolean(TC != nullptr);
+    if (TC)
+      AddStmt(TC->getImmediatelyDeclaredConstraint());
+
     Inherited::VisitTemplateTypeParmDecl(D);
   }
 

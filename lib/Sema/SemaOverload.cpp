@@ -9370,10 +9370,14 @@ bool clang::isBetterOverloadCandidate(
       Expr *RC1 = Cand1.Function->getTrailingRequiresClause();
       Expr *RC2 = Cand2.Function->getTrailingRequiresClause();
       if (RC1 && RC2) {
-        bool AtLeastAsConstrained1 = S.IsMoreConstrained(Cand1.Function, RC1,
-                                                         Cand2.Function, RC2);
-        bool AtLeastAsConstrained2 = S.IsMoreConstrained(Cand2.Function, RC2,
-                                                         Cand1.Function, RC1);
+        bool AtLeastAsConstrained1 = S.IsAtLeastAsConstrained(Cand1.Function,
+                                                              RC1,
+                                                              Cand2.Function,
+                                                              RC2);
+        bool AtLeastAsConstrained2 = S.IsAtLeastAsConstrained(Cand2.Function,
+                                                              RC2,
+                                                              Cand1.Function,
+                                                              RC1);
         if (AtLeastAsConstrained1 != AtLeastAsConstrained2)
           return AtLeastAsConstrained1;
       } else if (RC1 || RC2)
@@ -11668,13 +11672,15 @@ Sema::resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &Pair) {
       SmallVector<const Expr *, 1> ResultAC, FDAC;
       Result->getAssociatedConstraints(ResultAC);
       FD->getAssociatedConstraints(FDAC);
-      bool ResultMoreConstrained = IsMoreConstrained(Result, ResultAC, FD,
-                                                     FDAC);
-      bool FDMoreConstrained = IsMoreConstrained(FD, FDAC, Result, ResultAC);
-      if (ResultMoreConstrained == FDMoreConstrained) {
+      bool ResultAtLeastAsConstrained = IsAtLeastAsConstrained(Result,
+                                                               ResultAC, FD,
+                                                               FDAC);
+      bool FDAtLeastAsConstrained = IsAtLeastAsConstrained(FD, FDAC, Result,
+                                                           ResultAC);
+      if (ResultAtLeastAsConstrained == FDAtLeastAsConstrained) {
         IsResultAmbiguous = true;
         continue;
-      } else if (ResultMoreConstrained)
+      } else if (ResultAtLeastAsConstrained)
         continue;
       // FD is more constrained replace Result with it.
     }

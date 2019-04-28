@@ -142,6 +142,9 @@ void Parser::CheckForTemplateAndDigraph(Token &Next, ParsedType ObjectType,
 ///
 /// \param OnlyNamespace If true, only considers namespaces in lookup.
 ///
+/// \param SuppressDiagnostic If true, suppress diagnostic on incorrect scope
+///                           specifier.
+///
 /// \returns true if there was an error parsing a scope specifier
 bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
                                             ParsedType ObjectType,
@@ -149,11 +152,13 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
                                             bool *MayBePseudoDestructor,
                                             bool IsTypename,
                                             IdentifierInfo **LastII,
-                                            bool OnlyNamespace) {
+                                            bool OnlyNamespace,
+                                            bool SuppressDiagnostic) {
   assert(getLangOpts().CPlusPlus &&
          "Call sites of this function should be guarded by checking for C++");
 
   if (Tok.is(tok::annot_cxxscope)) {
+    assert(!LastII && "want last identifier but have already annotated scope");
     assert(!LastII && "want last identifier but have already annotated scope");
     assert(!MayBePseudoDestructor && "unexpected annot_cxxscope");
     Actions.RestoreNestedNameSpecifierAnnotation(Tok.getAnnotationValue(),
@@ -455,7 +460,7 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
       bool *CorrectionFlagPtr = ColonIsSacred ? &IsCorrectedToColon : nullptr;
       if (Actions.ActOnCXXNestedNameSpecifier(
               getCurScope(), IdInfo, EnteringContext, SS, false,
-              CorrectionFlagPtr, OnlyNamespace)) {
+              CorrectionFlagPtr, OnlyNamespace, SuppressDiagnostic)) {
         // Identifier is not recognized as a nested name, but we can have
         // mistyped '::' instead of ':'.
         if (CorrectionFlagPtr && IsCorrectedToColon) {
@@ -476,6 +481,11 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
     // nested-name-specifier:
     //   type-name '<'
     if (Next.is(tok::less)) {
+      if (OnlyNamespace)
+        // We can't have template-ids as part of a namespace scope specifier,
+        // the scope specifier must end here.
+        break;
+
       TemplateTy Template;
       UnqualifiedId TemplateName;
       TemplateName.setIdentifier(&II, Tok.getLocation());
@@ -492,7 +502,8 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
         // template-id to be translated into a type annotation,
         // because some clients (e.g., the parsing of class template
         // specializations) still want to see the original template-id
-        // token.
+        // token, and it might not be a type at all (e.g. a concept name in a
+        // type-constraint).
         ConsumeToken();
         if (AnnotateTemplateIdToken(Template, TNK, SS, SourceLocation(),
                                     TemplateName, false))
@@ -2502,6 +2513,9 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
 ///
 /// \param Result on a successful parse, contains the parsed unqualified-id.
 ///
+/// \param SuppressDiag whether to suppress the diagnostic when an unqualified
+///        id was not found at the current location.
+///
 /// \returns true if parsing fails, false otherwise.
 bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                                 bool AllowDestructorName,
@@ -2509,7 +2523,7 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                                 bool AllowDeductionGuide,
                                 ParsedType ObjectType,
                                 SourceLocation *TemplateKWLoc,
-                                UnqualifiedId &Result) {
+                                UnqualifiedId &Result, bool SuppressDiag) {
   if (TemplateKWLoc)
     *TemplateKWLoc = SourceLocation();
 
@@ -2739,8 +2753,9 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
     return false;
   }
 
-  Diag(Tok, diag::err_expected_unqualified_id)
-    << getLangOpts().CPlusPlus;
+  if (!SuppressDiag)
+    Diag(Tok, diag::err_expected_unqualified_id)
+      << getLangOpts().CPlusPlus;
   return true;
 }
 

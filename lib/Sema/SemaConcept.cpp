@@ -830,8 +830,9 @@ static bool subsumes(Sema &S, ArrayRef<const Expr *> P,
   return false;
 }
 
-bool Sema::IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
-                             NamedDecl *D2, ArrayRef<const Expr *> AC2) {
+bool Sema::IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
+                                  NamedDecl *D2, ArrayRef<const Expr *> AC2,
+                                  bool NoCache) {
   if (AC1.empty())
     return AC2.empty();
   if (AC2.empty())
@@ -839,9 +840,11 @@ bool Sema::IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
     return true;
 
   std::pair<NamedDecl *, NamedDecl *> Key{D1, D2};
-  auto CacheEntry = SubsumptionCache.find(Key);
-  if (CacheEntry != SubsumptionCache.end())
-    return CacheEntry->second;
+  if (!NoCache) {
+    auto CacheEntry = SubsumptionCache.find(Key);
+    if (CacheEntry != SubsumptionCache.end())
+      return CacheEntry->second;
+  }
 
   bool Subsumes;
   if (subsumes(*this, AC1, AC2, Subsumes,
@@ -850,7 +853,8 @@ bool Sema::IsMoreConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
         }))
     // Program is ill-formed at this point.
     return false;
-  SubsumptionCache.try_emplace(Key, Subsumes);
+  if (!NoCache)
+    SubsumptionCache.try_emplace(Key, Subsumes);
   return Subsumes;
 }
 
