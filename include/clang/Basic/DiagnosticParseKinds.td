@@ -1259,7 +1259,7 @@ def err_for_co_await_not_range_for : Error<
 let CategoryName = "Concepts Issue" in {
 def err_concept_definition_not_identifier : Error<
   "name defined in concept definition must be an identifier">;
-def err_concept_legacy_bool_keyword : ExtWarn<
+def ext_concept_legacy_bool_keyword : ExtWarn<
   "ISO C++2a does not permit the 'bool' keyword after 'concept'">,
   InGroup<DiagGroup<"concepts-ts-compat">>;
 }

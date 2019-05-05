@@ -830,8 +830,7 @@ ConceptDecl *ConceptDecl::Create(ASTContext &C, DeclContext *DC,
                                  SourceLocation L, DeclarationName Name,
                                  TemplateParameterList *Params,
                                  Expr *ConstraintExpr) {
-  // TODO: Do we need this?
-  //  AdoptTemplateParameterList(Params, cast<DeclContext>(Decl));
+  AdoptTemplateParameterList(Params, DC);
   return new (C, DC) ConceptDecl(DC, L, Name, Params, ConstraintExpr);
 }
 

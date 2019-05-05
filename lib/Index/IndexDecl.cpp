@@ -651,8 +651,7 @@ public:
     return true;
   }
 
-  static bool shouldIndexTemplateParameterDefaultValue(const TemplateDecl *TD,
-                                                       const NamedDecl *D) {
+  static bool shouldIndexTemplateParameterDefaultValue(const NamedDecl *D) {
     // We want to index the template parameters only once when indexing the
     // canonical declaration.
     if (!D)
@@ -674,7 +673,7 @@ public:
 
     // Index the default values for the template parameters.
     if (D->getTemplateParameters() &&
-        shouldIndexTemplateParameterDefaultValue(D, Parent)) {
+        shouldIndexTemplateParameterDefaultValue(Parent)) {
       const TemplateParameterList *Params = D->getTemplateParameters();
       for (const NamedDecl *TP : *Params) {
         if (IndexCtx.shouldIndexTemplateParameters())

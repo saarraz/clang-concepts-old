@@ -6673,9 +6673,9 @@ public:
                                   unsigned NumArgs);
 
   // Concepts
-  Decl *ActOnConceptDefinition(Scope *S,
-      MultiTemplateParamsArg TemplateParameterLists, IdentifierInfo *Name,
-      SourceLocation NameLoc, Expr *ConstraintExpr);
+  Decl *ActOnConceptDefinition(
+      Scope *S, MultiTemplateParamsArg TemplateParameterLists,
+      IdentifierInfo *Name, SourceLocation NameLoc, Expr *ConstraintExpr);
 
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])
