@@ -101,5 +101,6 @@ def Import : Decl;
 def OMPThreadPrivate : Decl;
 def OMPAllocate : Decl;
 def OMPRequires : Decl;
+def RequiresExprBody : Decl, DeclContext;
 def Empty : Decl;
 
