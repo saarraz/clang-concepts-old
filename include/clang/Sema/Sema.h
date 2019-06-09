@@ -6815,7 +6815,8 @@ public:
   //===--------------------------------------------------------------------===//
   Decl *ActOnConceptDefinition(
       Scope *S, MultiTemplateParamsArg TemplateParameterLists,
-      IdentifierInfo *Name, SourceLocation NameLoc, Expr *ConstraintExpr);
+      IdentifierInfo *Name, SourceLocation NameLoc, Expr *ConstraintExpr,
+      const ParsedAttributesView &Attrs);
 
   RequiresExprBodyDecl *
   ActOnEnterRequiresExpr(SourceLocation RequiresKWLoc,

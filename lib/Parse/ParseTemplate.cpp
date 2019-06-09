@@ -153,16 +153,12 @@ Decl *Parser::ParseTemplateDeclarationOrSpecialization(
   ParseScopeFlags TemplateScopeFlags(this, NewFlags, isSpecialization);
 
   // Parse the actual template declaration.
-  if (Tok.is(tok::kw_concept))
-    return ParseConceptDefinition(
-        ParsedTemplateInfo(&ParamLists, isSpecialization,
-                           LastParamListWasEmpty),
-        DeclEnd);
-
-  return ParseSingleDeclarationAfterTemplate(
-      Context,
-      ParsedTemplateInfo(&ParamLists, isSpecialization, LastParamListWasEmpty),
-      ParsingTemplateParams, DeclEnd, AccessAttrs, AS);
+  return ParseSingleDeclarationAfterTemplate(Context,
+                                             ParsedTemplateInfo(&ParamLists,
+                                                             isSpecialization,
+                                                         LastParamListWasEmpty),
+                                             ParsingTemplateParams,
+                                             DeclEnd, AccessAttrs, AS);
 }
 
 /// Parse a single declaration that declares a template,
@@ -190,19 +186,31 @@ Decl *Parser::ParseSingleDeclarationAfterTemplate(
     return ParseStaticAssertDeclaration(DeclEnd);
   }
 
+  TentativeParsingAction TPA(*this);
+  ParsedAttributesWithRange prefixAttrs(AttrFactory);
+  MaybeParseCXX11Attributes(prefixAttrs);
+
+  // Try parsing a concept before a member, to emit a better diagnostic if a
+  // member concept is being attempted.
+  if (Tok.is(tok::kw_concept)) {
+    TPA.Commit();
+    return ParseConceptDefinition(TemplateInfo, DeclEnd, prefixAttrs);
+  }
+
   if (Context == DeclaratorContext::MemberContext) {
-    // We are parsing a member template.
+    // We are parsing a member template - revert the attribute parsing which
+    // will happen in ParseCXXClassMemberDeclaration.
+    TPA.Revert();
     ParseCXXClassMemberDeclaration(AS, AccessAttrs, TemplateInfo,
                                    &DiagsFromTParams);
     return nullptr;
   }
 
-  ParsedAttributesWithRange prefixAttrs(AttrFactory);
-  MaybeParseCXX11Attributes(prefixAttrs);
+  TPA.Commit();
 
   if (Tok.is(tok::kw_using)) {
-    auto usingDeclPtr = ParseUsingDirectiveOrDeclaration(Context, TemplateInfo, DeclEnd,
-                                                         prefixAttrs);
+    auto usingDeclPtr = ParseUsingDirectiveOrDeclaration(Context, TemplateInfo,
+                                                         DeclEnd, prefixAttrs);
     if (!usingDeclPtr || !usingDeclPtr.get().isSingleDecl())
       return nullptr;
     return usingDeclPtr.get().getSingleDecl();
@@ -362,7 +370,8 @@ Decl *Parser::ParseSingleDeclarationAfterTemplate(
 /// \returns the new declaration.
 Decl *
 Parser::ParseConceptDefinition(const ParsedTemplateInfo &TemplateInfo,
-                               SourceLocation &DeclEnd) {
+                               SourceLocation &DeclEnd,
+                               ParsedAttributesWithRange &ConceptAttrs) {
   assert(TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate &&
          "Template information required");
   assert(Tok.is(tok::kw_concept) &&
@@ -430,7 +439,8 @@ Parser::ParseConceptDefinition(const ParsedTemplateInfo &TemplateInfo,
   Expr *ConstraintExpr = ConstraintExprResult.get();
   return Actions.ActOnConceptDefinition(getCurScope(),
                                         *TemplateInfo.TemplateParams,
-                                        Id, IdLoc, ConstraintExpr);
+                                        Id, IdLoc, ConstraintExpr,
+                                        ConceptAttrs);
 }
 
 /// ParseTemplateParameters - Parses a template-parameter-list enclosed in

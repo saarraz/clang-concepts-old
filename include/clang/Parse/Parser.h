@@ -3019,7 +3019,8 @@ private:
   // C++2a: Template, concept definition [temp]
   Decl *
   ParseConceptDefinition(const ParsedTemplateInfo &TemplateInfo,
-                         SourceLocation &DeclEnd);
+                         SourceLocation &DeclEnd,
+                         ParsedAttributesWithRange &ConceptAttrs);
 
   //===--------------------------------------------------------------------===//
   // Modules

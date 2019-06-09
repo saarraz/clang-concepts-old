@@ -4105,3 +4105,71 @@ This attribute does not affect optimizations in any way, unlike GCC's
 ``__attribute__((malloc))``.
 }];
 }
+
+
+def OpaqueConceptDocs : Documentation {
+  let Category = DocCatConcept;
+  let Content = [{
+This attribute appertains to a concept, making it opaque.
+Normally, when constraints are not satisfied, concepts that weren't satisfied
+are broken down into their constraint expressions to show why they weren't
+satisfied - opaque concepts are not broken down in this process.
+
+Use for concepts whose names are self-explanatory and delving into their
+implementation would damage or not add to the clarity of error messages:
+
+.. code-block:: c++
+
+  template<typename T, typename U>
+  [[clang::opaque]] concept Same = detail::SameHelper<T, U> &&
+                                   detail::SameHelper<U, T>;
+                                   // Showing these implementation details
+                                   // in errors would damage readability.
+
+  template<typename T>
+  [[clang::opaque]] concept Object = std::is_object_v<T>;
+                                     // the implementation here doesn't add any
+                                     // real information.
+
+  template<typename T>
+  concept Foo = requires (T t) { t.foo(); t.bar(); };
+                // The requirements of the concept are not apparent from its
+                // name - we want error messages to elaborate.
+  }];
+}
+
+
+def ConceptNameKindDocs : Documentation {
+  let Category = DocCatConcept;
+  let Content = [{
+These attributes appertain to concepts, denoting the way their names are used in
+diagnostics.
+
+.. code-block:: c++
+
+  template<typename T, typename U>
+  [[clang::relation("the", "as")]]
+  concept Same = detail::SameHelper<T, U> && detail::SameHelper<U, T>;
+  // error: 'int' is not the 'Same' as 'long'
+
+  template<typename T>
+  [[clang::noun]]
+  concept Object = std::is_object_v<T>;
+  // error: 'int &' is not an 'Object'.
+
+  template<typename T>
+  [[clang::noun]]
+  concept Class = std::is_void_v<T>;
+  // error: 'int &' is not a 'Class'.
+
+  template<typename T>
+  [[clang::noun(a)]]
+  concept UsefulObject = std::is_object_v<T> && sizeof(T) > 10;
+  // error: 'int &' is not a 'UsefulObject'.
+
+  template<typename T>
+  [[clang::adjective]]
+  concept Fooable = requires (T t) { t.foo(); t.bar(); };
+  // error: 'void' is not 'Fooable'.
+}];
+}

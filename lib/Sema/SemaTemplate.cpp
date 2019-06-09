@@ -8135,7 +8135,8 @@ Decl *Sema::ActOnTemplateDeclarator(Scope *S,
 Decl *Sema::ActOnConceptDefinition(Scope *S,
                               MultiTemplateParamsArg TemplateParameterLists,
                                    IdentifierInfo *Name, SourceLocation NameLoc,
-                                   Expr *ConstraintExpr) {
+                                   Expr *ConstraintExpr,
+                                   const ParsedAttributesView &Attrs) {
   DeclContext *DC = CurContext;
 
   if (!DC->getRedeclContext()->isFileContext()) {
@@ -8158,6 +8159,8 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
                                              TemplateParameterLists.front(),
                                              ConstraintExpr);
                                              
+  ProcessDeclAttributeList(S, NewDecl, Attrs);
+
   if (NewDecl->hasAssociatedConstraints()) {
     // C++2a [temp.concept]p4:
     // A concept shall not have associated constraints.
