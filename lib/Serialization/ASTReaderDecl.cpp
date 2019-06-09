@@ -2358,15 +2358,20 @@ void ASTDeclReader::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
   D->setDeclaredWithTypename(Record.readInt());
 
   if (Record.readInt()) {
-    NestedNameSpecifierLoc NNS = Record.readNestedNameSpecifierLoc();
-    DeclarationNameInfo DN;
-    Record.readDeclarationNameInfo(DN);
-    ConceptDecl *NamedConcept = cast<ConceptDecl>(Record.readDecl());
-    const ASTTemplateArgumentListInfo *ArgsAsWritten =
-        Record.readASTTemplateArgumentListInfo();
-    Expr *ImmediatelyDeclaredConstraint = Record.readExpr();
-    D->setTypeConstraint(NNS, DN, /*FoundDecl=*/nullptr, NamedConcept,
-                         ArgsAsWritten, ImmediatelyDeclaredConstraint);
+    if (Record.readInt()) {
+        NestedNameSpecifierLoc NNS = Record.readNestedNameSpecifierLoc();
+        DeclarationNameInfo DN;
+        Record.readDeclarationNameInfo(DN);
+        ConceptDecl *NamedConcept = cast<ConceptDecl>(Record.readDecl());
+        const ASTTemplateArgumentListInfo *ArgsAsWritten =
+            Record.readASTTemplateArgumentListInfo();
+        Expr *ImmediatelyDeclaredConstraint = Record.readExpr();
+        D->setTypeConstraint(NNS, DN, /*FoundDecl=*/nullptr, NamedConcept,
+                             ArgsAsWritten, ImmediatelyDeclaredConstraint);
+    }
+    else
+      D->setInheritedTypeConstraint(
+          Record.readDeclAs<TemplateTypeParmDecl>());
   }
 
   if (Record.readInt())
@@ -3807,9 +3812,9 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
     D = FunctionTemplateDecl::CreateDeserialized(Context, ID);
     break;
   case DECL_TEMPLATE_TYPE_PARM: {
-    bool HasTypeConstraint = Record.readInt();
+    bool OwnsTypeConstraint = Record.readInt();
     D = TemplateTypeParmDecl::CreateDeserialized(Context, ID,
-                                                 HasTypeConstraint);
+                                                 OwnsTypeConstraint);
     break;
   }
   case DECL_NON_TYPE_TEMPLATE_PARM:

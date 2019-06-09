@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ -verify %s
-#if 0
+
 template<typename T> requires (sizeof(T) >= 2) // expected-note{{because 'sizeof(char) >= 2' (1 >= 2) evaluated to false}}
 struct A {
   static constexpr int value = sizeof(T);
@@ -16,14 +16,14 @@ constexpr int SizeDiff = sizeof(T) > sizeof(U) ? sizeof(T) - sizeof(U) : sizeof(
 static_assert(SizeDiff<int, char> == 3);
 static_assert(SizeDiff<int, char[4]> == 0); // expected-error{{constraints not satisfied for variable template 'SizeDiff' [with T = int, U = char [4]]}}
 static_assert(SizeDiff<char, int> == 3); // expected-error{{constraints not satisfied for variable template 'SizeDiff' [with T = char, U = int]}}
-#endif
+
 template<typename... Ts>
   requires ((sizeof(Ts) == 4) || ...) // expected-note{{because 'sizeof(char) == 4' (1 == 4) evaluated to false}} expected-note{{'sizeof(long long) == 4' (8 == 4) evaluated to false}} expected-note{{'sizeof(int [20]) == 4' (80 == 4) evaluated to false}}
 constexpr auto SumSizes = (sizeof(Ts) + ...);
 
 static_assert(SumSizes<char, long long, int> == 13);
 static_assert(SumSizes<char, long long, int[20]> == 89); // expected-error{{constraints not satisfied for variable template 'SumSizes' [with Ts = <char, long long, int [20]>]}}
-#if 0
+
 template<typename T>
 concept IsBig = sizeof(T) > 100; // expected-note{{because 'sizeof(int) > 100' (4 > 100) evaluated to false}}
 
@@ -90,4 +90,11 @@ struct D { };
 
 static_assert(C<int>{}); // expected-note{{while checking constraint satisfaction for template 'C<int>' required here}}
 static_assert(D<int>{}); // expected-note{{while checking constraint satisfaction for template 'D<int>' required here}}
-#endif
+
+template<typename T>
+struct dummy {
+    template<typename U>
+        requires (sizeof(U) == 4)
+    class A;
+    using type = A<int>;
+};

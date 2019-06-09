@@ -67,7 +67,8 @@ NamedDecl *getAsNamedDecl(TemplateParameter P);
 /// derived classes.
 class TemplateParameterList final
     : private llvm::TrailingObjects<TemplateParameterList, NamedDecl *,
-                                    Expr *> {
+                                  llvm::PointerUnion<Expr *,
+                                                     TemplateParameterList *>> {
   /// The location of the 'template' keyword.
   SourceLocation TemplateLoc;
 
@@ -92,13 +93,15 @@ class TemplateParameterList final
 protected:
   TemplateParameterList(const ASTContext& C, SourceLocation TemplateLoc,
                         SourceLocation LAngleLoc, ArrayRef<NamedDecl *> Params,
-                        SourceLocation RAngleLoc, Expr *RequiresClause);
+                        SourceLocation RAngleLoc, Expr *RequiresClause,
+                        TemplateParameterList *InheritedConstraints);
 
   size_t numTrailingObjects(OverloadToken<NamedDecl *>) const {
     return NumParams;
   }
 
-  size_t numTrailingObjects(OverloadToken<Expr *>) const {
+  size_t numTrailingObjects(
+      OverloadToken<llvm::PointerUnion<Expr *, TemplateParameterList *>>) const{
     return HasRequiresClause ? 1 : 0;
   }
 
@@ -108,11 +111,10 @@ public:
   friend TrailingObjects;
 
   static TemplateParameterList *Create(const ASTContext &C,
-                                       SourceLocation TemplateLoc,
-                                       SourceLocation LAngleLoc,
-                                       ArrayRef<NamedDecl *> Params,
-                                       SourceLocation RAngleLoc,
-                                       Expr *RequiresClause);
+      SourceLocation TemplateLoc, SourceLocation LAngleLoc,
+      ArrayRef<NamedDecl *> Params, SourceLocation RAngleLoc,
+      Expr *RequiresClause,
+      TemplateParameterList *InheritedConstraints = nullptr);
 
   /// Iterates through the template parameters in this list.
   using iterator = NamedDecl **;
@@ -171,14 +173,63 @@ public:
     return false;
   }
 
+  SourceLocation getTemplateLoc() const { return TemplateLoc; }
+  SourceLocation getLAngleLoc() const { return LAngleLoc; }
+  SourceLocation getRAngleLoc() const { return RAngleLoc; }
+
+  SourceRange getSourceRange() const LLVM_READONLY {
+    return SourceRange(TemplateLoc, RAngleLoc);
+  }
+
   /// The constraint-expression of the associated requires-clause.
   Expr *getRequiresClause() {
-    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
+    if (!HasRequiresClause)
+      return nullptr;
+    const auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (auto *I = P.dyn_cast<TemplateParameterList *>())
+      return I->getRequiresClause();
+    return P.get<Expr *>();
   }
 
   /// The constraint-expression of the associated requires-clause.
   const Expr *getRequiresClause() const {
-    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
+    if (!HasRequiresClause)
+      return nullptr;
+    const auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (auto *I = P.dyn_cast<TemplateParameterList *>())
+      return I->getRequiresClause();
+    return P.get<Expr *>();
+  }
+
+  void setRequiresClause(Expr *RC) {
+    assert(HasRequiresClause &&
+           "Can only set requires clause on TPLs that were originally created "
+           "with one.");
+    *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                           TemplateParameterList *>>() = RC;
+  }
+
+  void setInheritedConstraints(TemplateParameterList *InheritedConstraints) {
+    assert(HasRequiresClause &&
+           "Can only setInheritedConstraints when there is already a requires "
+           "clause");
+    auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    P = InheritedConstraints;
+  }
+
+  TemplateParameterList *getInheritedConstraints() {
+    return getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                 TemplateParameterList *>>()
+        ->get<TemplateParameterList *>();
+  }
+
+  bool inheritsConstraints() const {
+    return getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                 TemplateParameterList *>>()
+        ->is<TemplateParameterList *>();
   }
 
   /// \brief All associated constraints derived from this template parameter
@@ -189,15 +240,9 @@ public:
   /// conjunction ("and").
   void getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const;
 
+  /// \brief Whether there are associated constraints in this template parameter
+  /// list or in any of its parameters.
   bool hasAssociatedConstraints() const;
-
-  SourceLocation getTemplateLoc() const { return TemplateLoc; }
-  SourceLocation getLAngleLoc() const { return LAngleLoc; }
-  SourceLocation getRAngleLoc() const { return RAngleLoc; }
-
-  SourceRange getSourceRange() const LLVM_READONLY {
-    return SourceRange(TemplateLoc, RAngleLoc);
-  }
 
 public:
   // FIXME: workaround for MSVC 2013; remove when no longer needed
@@ -211,9 +256,8 @@ template <size_t N, bool HasRequiresClause>
 class FixedSizeTemplateParameterListStorage
     : public TemplateParameterList::FixedSizeStorageOwner {
   typename TemplateParameterList::FixedSizeStorage<
-      NamedDecl *, Expr *>::with_counts<
-      N, HasRequiresClause ? 1u : 0u
-      >::type storage;
+      NamedDecl *, llvm::PointerUnion<Expr *, TemplateParameterList *>>::
+      with_counts<N, HasRequiresClause ? 1u : 0u>::type storage;
 
 public:
   FixedSizeTemplateParameterListStorage(const ASTContext &C,
@@ -221,12 +265,16 @@ public:
                                         SourceLocation LAngleLoc,
                                         ArrayRef<NamedDecl *> Params,
                                         SourceLocation RAngleLoc,
-                                        Expr *RequiresClause)
+                                        Expr *RequiresClause,
+                                    TemplateParameterList *InheritedConstraints)
       : FixedSizeStorageOwner(
             (assert(N == Params.size()),
-             assert(HasRequiresClause == (RequiresClause != nullptr)),
+             assert(HasRequiresClause == (RequiresClause != nullptr
+                    || (InheritedConstraints != nullptr
+                        && InheritedConstraints->HasRequiresClause))),
              new (static_cast<void *>(&storage)) TemplateParameterList(C,
-                 TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause))) {}
+                 TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause,
+                 InheritedConstraints))) {}
 };
 
 /// A template argument list.
@@ -1213,13 +1261,20 @@ class TemplateTypeParmDecl final : public TypeDecl,
   /// If false, it was declared with the 'class' keyword.
   bool Typename : 1;
 
-  /// Whether this template type parameter has a type-constraint construct.
-  bool HasTypeConstraint : 1;
+  /// Whether this template type parameter owns a type-constraint construct.
+  bool OwnsTypeConstraint : 1;
 
-  /// Whether the type constraint has been initialized. This can be false if the
-  /// constraint was not initialized yet or if there was an error forming the
-  /// type constriant.
-  bool TypeConstraintInitialized : 1;
+  /// The int indicates whether the type constraint was initialized, and if the
+  /// pointer is not null, it means that the type constraint was inherited from
+  /// another declaration, and points to that declaration.
+  enum TypeConstraintStatus {
+      TCS_None,
+      TCS_Uninitialized,
+      TCS_Owned,
+      TCS_Inherited
+  };
+  llvm::PointerIntPair<TemplateTypeParmDecl *, 2, TypeConstraintStatus>
+      TypeConstraintStatus;
 
   /// The default template argument, if any.
   using DefArgStorage =
@@ -1228,9 +1283,11 @@ class TemplateTypeParmDecl final : public TypeDecl,
 
   TemplateTypeParmDecl(DeclContext *DC, SourceLocation KeyLoc,
                        SourceLocation IdLoc, IdentifierInfo *Id,
-                       bool Typename, bool HasTypeConstraint)
+                       bool Typename, bool OwnsTypeConstraint)
       : TypeDecl(TemplateTypeParm, DC, IdLoc, Id, KeyLoc), Typename(Typename),
-      HasTypeConstraint(HasTypeConstraint), TypeConstraintInitialized(false) {}
+      OwnsTypeConstraint(OwnsTypeConstraint),
+      TypeConstraintStatus(nullptr,
+                           OwnsTypeConstraint ? TCS_Uninitialized : TCS_None) {}
 
 public:
   static TemplateTypeParmDecl *Create(const ASTContext &C, DeclContext *DC,
@@ -1239,12 +1296,12 @@ public:
                                       unsigned D, unsigned P,
                                       IdentifierInfo *Id, bool Typename,
                                       bool ParameterPack,
-                                      bool HasTypeConstraint);
+                                      bool OwnsTypeConstraint);
   static TemplateTypeParmDecl *CreateDeserialized(const ASTContext &C,
                                                   unsigned ID);
   static TemplateTypeParmDecl *CreateDeserialized(const ASTContext &C,
                                                   unsigned ID,
-                                                  bool HasTypeConstraint);
+                                                  bool OwnsTypeConstraint);
 
   /// Whether this template type parameter was declared with
   /// the 'typename' keyword.
@@ -1252,7 +1309,7 @@ public:
   /// If not, it was either declared with the 'class' keyword or with a
   /// type-constraint (see hasTypeConstraint()).
   bool wasDeclaredWithTypename() const {
-    return Typename && !HasTypeConstraint;
+    return Typename && !hasTypeConstraint();
   }
 
   const DefArgStorage &getDefaultArgStorage() const { return DefaultArgument; }
@@ -1313,8 +1370,18 @@ public:
   /// Returns the type constraint associated with this template parameter (if
   /// any).
   const TypeConstraint *getTypeConstraint() const {
-    return TypeConstraintInitialized ? getTrailingObjects<TypeConstraint>() :
-         nullptr;
+    switch (TypeConstraintStatus.getInt()) {
+    case TCS_None:
+      return nullptr;
+    case TCS_Inherited:
+      return getInheritedFromTypeConstraintDecl()->getTypeConstraint();
+    case TCS_Owned:
+      return getTrailingObjects<TypeConstraint>();
+    case TCS_Uninitialized:
+      llvm_unreachable("Type constraint should be initialized before we can "
+                       "access it");
+    }
+    llvm_unreachable("Unhandled case");
   }
 
   void setTypeConstraint(NestedNameSpecifierLoc NNS,
@@ -1325,7 +1392,26 @@ public:
 
   /// Determine whether this template parameter has a type-constraint.
   bool hasTypeConstraint() const {
-    return HasTypeConstraint;
+    return TypeConstraintStatus.getInt() != TCS_None;
+  }
+
+  /// \brief Sets the type constraint associated with this template
+  /// parameter (if any) to inherit the type constraint of a previously declared
+  /// template parameter.
+  void setInheritedTypeConstraint(TemplateTypeParmDecl *Prev) {
+    assert(Prev->hasTypeConstraint());
+    TypeConstraintStatus.setPointer(Prev);
+    TypeConstraintStatus.setInt(TCS_Inherited);
+  }
+
+  TemplateTypeParmDecl *getInheritedFromTypeConstraintDecl() const {
+    assert(typeConstraintWasInherited());
+    return TypeConstraintStatus.getPointer();
+  }
+
+  bool typeConstraintWasInherited() const {
+    assert(hasTypeConstraint());
+    return TypeConstraintStatus.getInt() == TCS_Inherited;
   }
 
   /// \brief Get the associated-constraints of this template parameter.
@@ -1334,7 +1420,7 @@ public:
   /// Use this instead of getConstraintExpression for concepts APIs that
   /// accept an ArrayRef of constraint expressions.
   void getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const {
-    if (HasTypeConstraint)
+    if (hasTypeConstraint())
       AC.push_back(getTypeConstraint()->getImmediatelyDeclaredConstraint());
   }
 
@@ -2146,9 +2232,9 @@ public:
   /// template<> template<typename T>
   /// struct X<int>::Inner<T*> { /* ... */ };
   /// \endcode
-  bool isMemberSpecialization() {
+  bool isMemberSpecialization() const {
     const auto *First =
-        cast<ClassTemplatePartialSpecializationDecl>(getFirstDecl());
+        cast<const ClassTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getInt();
   }
 
@@ -2993,9 +3079,9 @@ public:
   /// template<> template<typename T>
   /// U* X<int>::Inner<T*> = (T*)(0) + 1;
   /// \endcode
-  bool isMemberSpecialization() {
+  bool isMemberSpecialization() const {
     const auto *First =
-        cast<VarTemplatePartialSpecializationDecl>(getFirstDecl());
+        cast<const VarTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getInt();
   }
 

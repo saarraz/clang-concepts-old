@@ -5782,15 +5782,17 @@ public:
   /// \brief Returns whether the given declaration's associated constraints are
   /// more constrained than another declaration's according to the partial
   /// ordering of constraints.
-  /// \param NoCache If true, the subsumption cache will not be used or updated
-  /// with the result of the check. Use when the given decls may have different
-  /// associated constraints later (e.g. when D1 is a template template
-  /// parameter and AC1 are the associated constraints for the current
-  /// instantiation).
   bool
   IsAtLeastAsConstrained(NamedDecl *D1, ArrayRef<const Expr *> AC1,
-                         NamedDecl *D2, ArrayRef<const Expr *> AC2,
-                         bool NoCache = false);
+                         NamedDecl *D2, ArrayRef<const Expr *> AC2);
+
+  /// \brief Returns whether the given declaration's associated constraints are
+  /// more constrained than another declaration's according to the partial
+  /// ordering of constraints.
+  bool IsAtLeastAsConstrained(ArrayRef<const Expr *> AC1,
+                              const MultiLevelTemplateArgumentList &MLTAL1,
+                              ArrayRef<const Expr *> AC2,
+                              const MultiLevelTemplateArgumentList &MLTAL2);
 
   /// \brief If D1 was not at least as constrained as D2, but would've been if
   /// a pair of atomic constraints involved had been declared in a concept and
@@ -5798,6 +5800,10 @@ public:
   /// \returns true if such a diagnostic was emitted, false otherwise.
   bool MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
       ArrayRef<const Expr *> AC1, NamedDecl *D2, ArrayRef<const Expr *> AC2);
+  bool MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
+      ArrayRef<const Expr *> AC1, const MultiLevelTemplateArgumentList &MLTAL1,
+      NamedDecl *D2, ArrayRef<const Expr *> AC2,
+      const MultiLevelTemplateArgumentList &MLTAL2);
 
   /// \brief Check whether the given list of constraint expressions are
   /// satisfied (as if in a 'conjunction') given template arguments.
@@ -5812,23 +5818,16 @@ public:
   /// expression.
   /// \returns true if an error occurred and satisfaction could not be checked,
   /// false otherwise.
-  bool CheckConstraintSatisfaction(TemplateDecl *Template,
-                                   ArrayRef<const Expr *> ConstraintExprs,
-                                   ArrayRef<TemplateArgument> TemplateArgs,
-                                   SourceRange TemplateIDRange,
-                                   ConstraintSatisfaction &Satisfaction);
+  bool CheckConstraintSatisfaction(NamedDecl *Template,
+      ArrayRef<const Expr *> ConstraintExprs,
+      const MultiLevelTemplateArgumentList &TemplateArgs,
+      SourceRange TemplateIDRange, ConstraintSatisfaction &Satisfaction);
 
-  bool CheckConstraintSatisfaction(ClassTemplatePartialSpecializationDecl *TD,
-                                   ArrayRef<const Expr *> ConstraintExprs,
-                                   ArrayRef<TemplateArgument> TemplateArgs,
-                                   SourceRange TemplateIDRange,
-                                   ConstraintSatisfaction &Satisfaction);
-
-  bool CheckConstraintSatisfaction(VarTemplatePartialSpecializationDecl *TD,
-                                   ArrayRef<const Expr *> ConstraintExprs,
-                                   ArrayRef<TemplateArgument> TemplateArgs,
-                                   SourceRange TemplateIDRange,
-                                   ConstraintSatisfaction &Satisfaction);
+  bool CheckConstraintSatisfaction(NestedRequirement *Req,
+      const Expr *ConstraintExpr,
+      const MultiLevelTemplateArgumentList &TemplateArgs,
+      ConstraintSatisfaction &Satisfaction, bool &IsDependent,
+      bool &ContainsUnexpandedParameterPack);
 
   /// \brief Check whether the given non-dependent constraint expression is
   /// satisfied. Returns false and updates Satisfaction with the satisfaction
@@ -6692,9 +6691,11 @@ public:
                                    QualType InstantiatedParamType, Expr *Arg,
                                    TemplateArgument &Converted,
                                CheckTemplateArgumentKind CTAK = CTAK_Specified);
-  bool CheckTemplateTemplateArgument(TemplateTemplateParmDecl *Param,
-                                     TemplateParameterList *Params,
-                                     TemplateArgumentLoc &Arg);
+  bool CheckTemplateArgument(TemplateTemplateParmDecl *Param,
+                             TemplateParameterList *Params,
+                             TemplateArgumentLoc &Arg,
+                             unsigned ArgumentPackIndex,
+                             ArrayRef<TemplateArgument> Converted);
 
   ExprResult
   BuildExpressionFromDeclTemplateArgument(const TemplateArgument &Arg,
@@ -7431,7 +7432,7 @@ public:
   //
 
   MultiLevelTemplateArgumentList
-  getTemplateInstantiationArgs(NamedDecl *D,
+  getTemplateInstantiationArgs(Decl *D,
                                const TemplateArgumentList *Innermost = nullptr,
                                bool RelativeToPrimary = false,
                                const FunctionDecl *Pattern = nullptr);
@@ -7808,6 +7809,8 @@ public:
     /// Determine whether we are already instantiating this
     /// specialization in some surrounding active instantiation.
     bool isAlreadyInstantiating() const { return AlreadyInstantiating; }
+
+    InstantiatingTemplate(InstantiatingTemplate&&);
 
   private:
     Sema &SemaRef;
@@ -8216,9 +8219,7 @@ public:
 
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
-  bool CheckInstantiatedFunctionTemplateConstraints(
-      SourceLocation PointOfInstantiation, FunctionDecl *Decl,
-      ArrayRef<TemplateArgument> TemplateArgs,
+  bool CheckFunctionConstraints(FunctionDecl *Decl,
       ConstraintSatisfaction &Satisfaction);
   FunctionDecl *InstantiateFunctionDeclaration(FunctionTemplateDecl *FTD,
                                                const TemplateArgumentList *Args,

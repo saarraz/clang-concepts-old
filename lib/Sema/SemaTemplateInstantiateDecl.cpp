@@ -1704,17 +1704,6 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
       return nullptr;
   }
 
-  Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  if (TrailingRequiresClause) {
-    ExprResult SubstRC = SemaRef.SubstExpr(TrailingRequiresClause,
-                                           TemplateArgs);
-    if (!SubstRC.isUsable() || SubstRC.isInvalid())
-      return nullptr;
-    TrailingRequiresClause = SubstRC.get();
-    if (!SemaRef.CheckConstraintExpression(TrailingRequiresClause))
-      return nullptr;
-  }
-
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
   // context.
@@ -1774,7 +1763,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
       Params[P]->setOwningFunction(Function);
   Function->setParams(Params);
 
-  if (TrailingRequiresClause)
+  if (Expr *TrailingRequiresClause = D->getTrailingRequiresClause())
     Function->setTrailingRequiresClause(TrailingRequiresClause);
 
   if (TemplateParams) {
@@ -2025,15 +2014,6 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  if (TrailingRequiresClause) {
-    ExprResult SubstRC = SemaRef.SubstExpr(TrailingRequiresClause,
-                                           TemplateArgs);
-    if (!SubstRC.isUsable() || SubstRC.isInvalid())
-      return nullptr;
-    TrailingRequiresClause = SubstRC.get();
-    if (!SemaRef.CheckConstraintExpression(TrailingRequiresClause))
-      return nullptr;
-  }
 
   DeclContext *DC = Owner;
   if (isFriend) {
@@ -2306,40 +2286,21 @@ Decl *TemplateDeclInstantiator::VisitTemplateTypeParmDecl(
       SemaRef.Context, Owner, D->getBeginLoc(), D->getLocation(),
       D->getDepth() - TemplateArgs.getNumSubstitutedLevels(), D->getIndex(),
       D->getIdentifier(), D->wasDeclaredWithTypename(), D->isParameterPack(),
-      D->hasTypeConstraint());
+      /*OwnsTypeConstraint=*/false);
   Inst->setAccess(AS_public);
-  if (auto *TC = D->getTypeConstraint()) {
-    // TODO: Concepts: do not instantiate the constraint (delayed constraint
-    // substitution)
-    const ASTTemplateArgumentListInfo *TemplArgInfo
-      = TC->getTemplateArgsAsWritten();
-    TemplateArgumentListInfo InstArgs;
-
-    if (TemplArgInfo) {
-      InstArgs.setLAngleLoc(TemplArgInfo->LAngleLoc);
-      InstArgs.setRAngleLoc(TemplArgInfo->RAngleLoc);
-      if (SemaRef.Subst(TemplArgInfo->getTemplateArgs(),
-                        TemplArgInfo->NumTemplateArgs,
-                        InstArgs, TemplateArgs))
-        return nullptr;
-    }
-    ExprResult Result =
-        SemaRef.SubstExpr(TC->getImmediatelyDeclaredConstraint(), TemplateArgs);
-    if (Result.isInvalid())
-      return nullptr;
-
-    Inst->setTypeConstraint(TC->getNestedNameSpecifierLoc(),
-        TC->getConceptNameInfo(), TC->getFoundDecl(), TC->getNamedConcept(),
-        TemplArgInfo ? ASTTemplateArgumentListInfo::Create(SemaRef.Context,
-                                                           InstArgs) : nullptr,
-        Result.get());
-  }
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
     TypeSourceInfo *InstantiatedDefaultArg =
         SemaRef.SubstType(D->getDefaultArgumentInfo(), TemplateArgs,
                           D->getDefaultArgumentLoc(), D->getDeclName());
     if (InstantiatedDefaultArg)
       Inst->setDefaultArgument(InstantiatedDefaultArg);
+  }
+
+  if (D->hasTypeConstraint()) {
+    if (D->typeConstraintWasInherited())
+      Inst->setInheritedTypeConstraint(D->getInheritedFromTypeConstraintDecl());
+    else
+      Inst->setInheritedTypeConstraint(D);
   }
 
   // Introduce this template parameter's instantiation into the instantiation
@@ -2621,6 +2582,7 @@ TemplateDeclInstantiator::VisitTemplateTemplateParmDecl(
                               D->getDefaultArgument().getTemplateQualifierLoc(),
                               D->getDefaultArgument().getTemplateNameLoc()));
   }
+
   Param->setAccess(AS_public);
 
   // Introduce this template parameter's instantiation into the instantiation
@@ -3481,21 +3443,12 @@ TemplateDeclInstantiator::SubstTemplateParams(TemplateParameterList *L) {
   if (Invalid)
     return nullptr;
 
-  // FIXME: Concepts: Substitution into requires clause should only happen when
-  // checking satisfaction.
-  Expr *InstRequiresClause = nullptr;
-  if (Expr *E = L->getRequiresClause()) {
-    ExprResult Res = SemaRef.SubstExpr(E, TemplateArgs);
-    if (Res.isInvalid() || !Res.isUsable()) {
-      return nullptr;
-    }
-    InstRequiresClause = Res.get();
-  }
-
   TemplateParameterList *InstL
     = TemplateParameterList::Create(SemaRef.Context, L->getTemplateLoc(),
                                     L->getLAngleLoc(), Params,
-                                    L->getRAngleLoc(), InstRequiresClause);
+                                    L->getRAngleLoc(),
+                                    /*RequiresClause=*/nullptr,
+                                    /*InheritedConstraints=*/L);
   return InstL;
 }
 
@@ -3979,17 +3932,69 @@ void Sema::InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                      TemplateArgs);
 }
 
-bool Sema::CheckInstantiatedFunctionTemplateConstraints(
-    SourceLocation PointOfInstantiation, FunctionDecl *Decl,
-    ArrayRef<TemplateArgument> TemplateArgs,
+bool Sema::CheckFunctionConstraints(FunctionDecl *Decl,
     ConstraintSatisfaction &Satisfaction) {
+  NamedDecl *Template = Decl->getPrimaryTemplate();
+  llvm::SmallVector<const Expr *, 3> AssociatedConstraints;
+  if (Template) {
+    cast<TemplateDecl>(Template)->getAssociatedConstraints(AssociatedConstraints);
+  } else {
+    Decl->getAssociatedConstraints(AssociatedConstraints);
+    if (!AssociatedConstraints.empty()) {
+      DeclContext *DC = Decl->getParent();
+      while (!DC->isFileContext()) {
+        if (auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(DC)) {
+          if (Spec->getSpecializationKind() == TSK_ExplicitSpecialization &&
+              !isa<ClassTemplatePartialSpecializationDecl>(Spec))
+            break;
+          if (!isa<ClassTemplatePartialSpecializationDecl>(Spec)) {
+            Template = Spec->getSpecializedTemplate();
+          } else {
+            Template = Spec;
+          }
+          break;
+        }
+        if (auto *Record = dyn_cast<CXXRecordDecl>(DC))
+          if (auto *ClassTemplate = Record->getDescribedClassTemplate()) {
+            Template = ClassTemplate;
+            break;
+          }
+        if (auto *Function = dyn_cast<FunctionDecl>(DC))
+          if (auto *FunctionTemplate = Function->getDescribedTemplate()) {
+            Template = FunctionTemplate;
+            break;
+          }
+        DC = DC->getParent();
+      }
+    }
+  }
+
+  if (AssociatedConstraints.empty()) {
+    Satisfaction.IsSatisfied = true;
+    return false;
+  }
+
+  if (!Template) {
+    // This is a non-template function which is also not a method of a template
+    // class.
+    if (Expr *RC = Decl->getTrailingRequiresClause())
+      return CheckConstraintSatisfaction(RC, Satisfaction);
+
+    Satisfaction.IsSatisfied = true;
+    return false;
+  }
+
+  // This is either an instantiated function template or a non-template method
+  // of a class template.
+
   // Enter the scope of this instantiation. We don't use
   // PushDeclContext because we don't have a scope.
   Sema::ContextRAII savedContext(*this, Decl);
   LocalInstantiationScope Scope(*this);
 
   MultiLevelTemplateArgumentList MLTAL =
-    getTemplateInstantiationArgs(Decl, nullptr, /*RelativeToPrimary*/true);
+      getTemplateInstantiationArgs(Decl, /*Innermost=*/nullptr,
+                                   /*RelativeToPrimary*/true);
 
   // If this is not an explicit specialization - we need to get the instantiated
   // version of the template arguments and add them to scope for the
@@ -4000,13 +4005,21 @@ bool Sema::CheckInstantiatedFunctionTemplateConstraints(
                                          Scope, MLTAL))
       return true;
 
-  FunctionTemplateDecl *Template = Decl->getPrimaryTemplate();
+
   // Note - code synthesis context for the constraints check is created
   // inside CheckConstraintsSatisfaction.
-  SmallVector<const Expr *, 3> TemplateAC;
-  Template->getAssociatedConstraints(TemplateAC);
-  return CheckConstraintSatisfaction(Template, TemplateAC, TemplateArgs,
-                                     PointOfInstantiation, Satisfaction);
+  if (auto *TD = dyn_cast<TemplateDecl>(Template))
+    return CheckConstraintSatisfaction(TD, AssociatedConstraints, MLTAL,
+                                       Decl->getPointOfInstantiation(),
+                                       Satisfaction);
+  if (auto *Var = dyn_cast<VarTemplatePartialSpecializationDecl>(Template))
+    return CheckConstraintSatisfaction(Var, AssociatedConstraints, MLTAL,
+                                       Decl->getPointOfInstantiation(),
+                                       Satisfaction);
+  return CheckConstraintSatisfaction(
+      cast<ClassTemplatePartialSpecializationDecl>(Template),
+      AssociatedConstraints, MLTAL, Decl->getPointOfInstantiation(),
+      Satisfaction);
 }
 
 /// Initializes the common fields of an instantiation function

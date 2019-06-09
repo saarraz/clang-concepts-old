@@ -19,11 +19,12 @@ using r3i = r3<int>; // expected-error{{constraints not satisfied for class temp
 
 template<typename T>
 struct X {
-    template<typename U> requires requires (U u) { requires sizeof(u) == sizeof(T); } // expected-note{{because 'sizeof (u) == sizeof(T)' would be invalid: invalid application of 'sizeof' to an incomplete type 'void'}}
+    template<typename U> requires requires (U u) { requires decltype(u)::hey == sizeof(T); }
+    // expected-note@-1{{because substituted constraint expression is ill-formed: type 'decltype(u)' (aka 'int') cannot be used prior to '::' because it has no members}}
     struct r4 {};
 };
 
-using r4i = X<void>::r4<int>; // expected-error{{constraints not satisfied for class template 'r4' [with U = int]}}
+using r4i = X<int>::r4<int>; // expected-error{{constraints not satisfied for class template 'r4' [with U = int]}}
 
 // C++ [expr.prim.req.nested] Examples
 namespace std_example {

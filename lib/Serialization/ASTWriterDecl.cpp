@@ -1580,7 +1580,7 @@ void ASTDeclWriter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
 }
 
 void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
-  Record.push_back(D->hasTypeConstraint());
+  Record.push_back(D->hasTypeConstraint() && !D->typeConstraintWasInherited());
   VisitTypeDecl(D);
 
   Record.push_back(D->wasDeclaredWithTypename());
@@ -1588,11 +1588,16 @@ void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
   const TypeConstraint *TC = D->getTypeConstraint();
   Record.push_back(TC != nullptr);
   if (TC) {
-    Record.AddNestedNameSpecifierLoc(TC->getNestedNameSpecifierLoc());
-    Record.AddDeclarationNameInfo(TC->getConceptNameInfo());
-    Record.AddDeclRef(TC->getNamedConcept());
-    Record.AddASTTemplateArgumentListInfo(TC->getTemplateArgsAsWritten());
-    Record.AddStmt(TC->getImmediatelyDeclaredConstraint());
+    bool OwnsTC = !D->typeConstraintWasInherited();
+    Record.push_back(OwnsTC);
+    if (OwnsTC) {
+        Record.AddNestedNameSpecifierLoc(TC->getNestedNameSpecifierLoc());
+        Record.AddDeclarationNameInfo(TC->getConceptNameInfo());
+        Record.AddDeclRef(TC->getNamedConcept());
+        Record.AddASTTemplateArgumentListInfo(TC->getTemplateArgsAsWritten());
+        Record.AddStmt(TC->getImmediatelyDeclaredConstraint());
+    } else
+      Record.AddDeclRef(D->getInheritedFromTypeConstraintDecl());
   }
 
   bool OwnsDefaultArg = D->hasDefaultArgument() &&

@@ -4273,15 +4273,17 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
       break;
     }
   }
-  if (!IsInstantiationDependent)
+  if (!IsInstantiationDependent) {
+    TemplateArgumentList TempList(TemplateArgumentList::OnStack, Converted);
     if (CheckConstraintSatisfaction(NamedConcept,
                                     {NamedConcept->getConstraintExpr()},
-                                    Converted,
+                                    MultiLevelTemplateArgumentList(TempList),
                                     SourceRange(SS.isSet() ? SS.getBeginLoc() :
                                                        ConceptNameInfo.getLoc(),
                                                 TemplateArgs->getRAngleLoc()),
                                     Satisfaction))
       return ExprError();
+  }
 
   return ConceptSpecializationExpr::Create(Context,
       SS.isSet() ? SS.getWithLocInContext(Context) : NestedNameSpecifierLoc{},
@@ -5124,7 +5126,8 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
 
   case TemplateArgument::Template:
   case TemplateArgument::TemplateExpansion:
-    if (CheckTemplateTemplateArgument(TempParm, Params, Arg))
+    if (CheckTemplateArgument(TempParm, Params, Arg, ArgumentPackIndex,
+                              Converted))
       return true;
 
     Converted.push_back(Arg.getArgument());
@@ -6873,9 +6876,11 @@ static void DiagnoseTemplateParameterListArityMismatch(
 ///
 /// This routine implements the semantics of C++ [temp.arg.template].
 /// It returns true if an error occurred, and false otherwise.
-bool Sema::CheckTemplateTemplateArgument(TemplateTemplateParmDecl *Param,
-                                         TemplateParameterList *Params,
-                                         TemplateArgumentLoc &Arg) {
+bool Sema::CheckTemplateArgument(TemplateTemplateParmDecl *Param,
+                                 TemplateParameterList *Params,
+                                 TemplateArgumentLoc &Arg,
+                                 unsigned ArgumentPackIndex,
+                                 ArrayRef<TemplateArgument> Converted) {
   TemplateName Name = Arg.getArgument().getAsTemplateOrTemplatePattern();
   TemplateDecl *Template = Name.getAsTemplateDecl();
   if (!Template) {
@@ -6929,6 +6934,25 @@ bool Sema::CheckTemplateTemplateArgument(TemplateTemplateParmDecl *Param,
 
     if (isTemplateTemplateParameterAtLeastAsSpecializedAs(Params, Template,
                                                           Arg.getLocation())) {
+      TemplateArgumentList ParamsSoFar(TemplateArgumentList::OnStack,
+                                       Converted);
+      // We want the enclosing template arguments along with the template
+      // arguments provided thus far in this template parameter list:
+      //
+      // template<typename T>
+      // struct A {
+      //   template<typename U, template<T t, U u> class TT> struct B { };
+      // };
+      // In the above example, for checking TT, we'll need:
+      // ParamMLTAL:
+      //   Depth 0: <T>
+      //   Depth 1: <U>
+      DeclContext *TemplatedEntityParent = Param->getDeclContext()->getParent();
+      MultiLevelTemplateArgumentList ParamMLTAL =
+          getTemplateInstantiationArgs(cast<Decl>(TemplatedEntityParent),
+                                       /*Innermost=*/&ParamsSoFar);
+      MultiLevelTemplateArgumentList ArgMLTAL =
+          getTemplateInstantiationArgs(Template);
       // C++2a[temp.func.order]p2
       //   [...] If both deductions succeed, the partial ordering selects the
       //   more constrained template as described by the rules in
@@ -6936,16 +6960,16 @@ bool Sema::CheckTemplateTemplateArgument(TemplateTemplateParmDecl *Param,
       SmallVector<const Expr *, 3> ParamsAC, TemplateAC;
       Params->getAssociatedConstraints(ParamsAC);
       Template->getAssociatedConstraints(TemplateAC);
-      if (!IsAtLeastAsConstrained(Param, ParamsAC, Template, TemplateAC,
-                                  /*NoCache=*/true)) {
+      if (!IsAtLeastAsConstrained(ParamsAC, ParamMLTAL, TemplateAC, ArgMLTAL)) {
         Diag(Arg.getLocation(),
              diag::err_template_template_parameter_not_at_least_as_constrained)
             << Template << Param << Arg.getSourceRange();
         Diag(Param->getLocation(), diag::note_entity_declared_at) << Param;
         Diag(Template->getLocation(), diag::note_entity_declared_at)
             << Template;
-        MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Param, ParamsAC, Template,
-                                                      TemplateAC);
+        MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Param, ParamsAC,
+                                                      ParamMLTAL, Template, 
+                                                      TemplateAC, ArgMLTAL);
         return true;
       }
       return false;
