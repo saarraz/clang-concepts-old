@@ -1182,7 +1182,7 @@ public:
   /// \brief Whether or not template arguments were specified in the type
   // constraint construct.
   bool wereArgumentsSpecified() const {
-    return ArgsAsWritten == nullptr;
+    return ArgsAsWritten != nullptr;
   }
 
   /// \brief Get the immediately-declared constraint expression introduced by
