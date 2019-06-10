@@ -1978,7 +1978,6 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     }
   }
 
-  ExprResult TrailingRequiresClause;
   if (Tok.is(tok::kw_requires))
     ParseTrailingRequiresClause(D);
 

@@ -139,3 +139,5 @@ template<typename T>
 void bar() requires (sizeof(T)) == 0;
 // expected-error@-1{{atomic constraint must be of type 'bool' (found 'unsigned long')}}
 // expected-note@-2{{'==' is not considered part of the requires clause (use parentheses to include it)}}
+
+void bar(int x, int y) requires (x, y, true);

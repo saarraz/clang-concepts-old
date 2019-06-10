@@ -3749,8 +3749,25 @@ void Parser::ParseTrailingRequiresClause(Declarator &D) {
 
   SourceLocation RequiresKWLoc = ConsumeToken();
 
-  ExprResult TrailingRequiresClause =
-      Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());
+  ExprResult TrailingRequiresClause;
+  {
+    ParseScope ParamScope(this, Scope::FunctionPrototypeScope);
+
+    if (D.isFunctionDeclarator()) {
+      auto &FTI = D.getFunctionTypeInfo();
+      if (FTI.Params)
+        for (auto &Param : ArrayRef<DeclaratorChunk::ParamInfo>(FTI.Params,
+                                                                FTI.NumParams)){
+          auto *ParamDecl = cast<NamedDecl>(Param.Param);
+          if (ParamDecl->getIdentifier())
+            Actions.PushOnScopeChains(ParamDecl, getCurScope(),
+                                      /*AddToContext=*/false);
+        }
+    }
+
+    TrailingRequiresClause =
+        Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());
+  }
 
   if (!D.isDeclarationOfFunction()) {
     Diag(RequiresKWLoc,
