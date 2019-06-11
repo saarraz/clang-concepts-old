@@ -3751,7 +3751,8 @@ void Parser::ParseTrailingRequiresClause(Declarator &D) {
 
   ExprResult TrailingRequiresClause;
   {
-    ParseScope ParamScope(this, Scope::FunctionPrototypeScope);
+    ParseScope ParamScope(this,
+                          Scope::DeclScope | Scope::FunctionPrototypeScope);
 
     if (D.isFunctionDeclarator()) {
       auto &FTI = D.getFunctionTypeInfo();
@@ -3764,6 +3765,9 @@ void Parser::ParseTrailingRequiresClause(Declarator &D) {
                                       /*AddToContext=*/false);
         }
     }
+
+    llvm::Optional<Sema::CXXThisScopeRAII> ThisScope;
+    InitCXXThisScopeForDeclaratorIfRelevant(D, D.getDeclSpec(), ThisScope);
 
     TrailingRequiresClause =
         Actions.CorrectDelayedTyposInExpr(ParseConstraintLogicalOrExpression());

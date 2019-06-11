@@ -15423,6 +15423,11 @@ bool Sema::checkThisInStaticMemberFunctionType(CXXMethodDecl *Method) {
   if (checkThisInStaticMemberFunctionExceptionSpec(Method))
     return true;
 
+  // Check the trailing requires clause
+  if (Expr *E = Method->getTrailingRequiresClause())
+    if (!Finder.TraverseStmt(E))
+      return true;
+
   return checkThisInStaticMemberFunctionAttributes(Method);
 }
 
