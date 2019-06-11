@@ -144,9 +144,9 @@ void bar(int x, int y) requires (x, y, true);
 
 struct B {
   int x;
-  void foo(int y) requires requires { x; this; this->x; y; };
-  static void bar(int y) requires requires { x; };
+  void foo(int y) requires (x, this, this->x, y, true);
+  static void bar(int y) requires (x, true);
   // expected-error@-1{{'this' cannot be implicitly used in a static member function declaration}}
-  static void baz(int y) requires requires { this; };
+  static void baz(int y) requires (this, true);
   // expected-error@-1{{'this' cannot be used in a static member function declaration}}
 };
