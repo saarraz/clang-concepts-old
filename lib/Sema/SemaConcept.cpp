@@ -144,7 +144,7 @@ static bool calculateConstraintSatisfaction(
           Sema::SFINAETrap Trap(S);
           SubstitutedExpression = S.SubstExpr(const_cast<Expr *>(AtomicExpr),
                                               MLTAL);
-          if (SubstitutedExpression.isInvalid()) {
+          if (SubstitutedExpression.isInvalid() || Trap.hasErrorOccurred()) {
             // C++2a [temp.constr.atomic]p1
             //   ...If substitution results in an invalid type or expression, the
             //   constraint is not satisfied.
