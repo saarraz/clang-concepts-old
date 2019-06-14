@@ -964,7 +964,7 @@ void CXXNameMangler::mangleUnscopedTemplateName(
     assert(!AdditionalAbiTags &&
            "template template param cannot have abi tags");
     mangleTemplateParameter(TTP->getIndex());
-  } else if (isa<BuiltinTemplateDecl>(ND)) {
+  } else if (isa<BuiltinTemplateDecl>(ND) || isa<ConceptDecl>(ND)) {
     mangleUnscopedName(ND, AdditionalAbiTags);
   } else {
     mangleUnscopedName(ND->getTemplatedDecl(), AdditionalAbiTags);
@@ -1832,7 +1832,7 @@ void CXXNameMangler::mangleTemplatePrefix(const TemplateDecl *ND,
     mangleTemplateParameter(TTP->getIndex());
   } else {
     manglePrefix(getEffectiveDeclContext(ND), NoFunction);
-    if (isa<BuiltinTemplateDecl>(ND))
+    if (isa<BuiltinTemplateDecl>(ND) || isa<ConceptDecl>(ND))
       mangleUnqualifiedName(ND, nullptr);
     else
       mangleUnqualifiedName(ND->getTemplatedDecl(), nullptr);
@@ -3557,7 +3557,6 @@ recurse:
   case Expr::ConvertVectorExprClass:
   case Expr::StmtExprClass:
   case Expr::TypeTraitExprClass:
-  case Expr::ConceptSpecializationExprClass:
   case Expr::ArrayTypeTraitExprClass:
   case Expr::ExpressionTraitExprClass:
   case Expr::VAArgExprClass:
@@ -4063,6 +4062,18 @@ recurse:
   case Expr::ParenExprClass:
     mangleExpression(cast<ParenExpr>(E)->getSubExpr(), Arity);
     break;
+
+
+  case Expr::ConceptSpecializationExprClass: {
+    //  <expr-primary> ::= L <mangled-name> E # external name
+    Out << "L_Z";
+    auto *CSE = cast<ConceptSpecializationExpr>(E);
+    mangleTemplateName(CSE->getNamedConcept(),
+                       CSE->getTemplateArguments().data(),
+                       CSE->getTemplateArguments().size());
+    Out << 'E';
+    break;
+  }
 
   case Expr::DeclRefExprClass: {
     const NamedDecl *D = cast<DeclRefExpr>(E)->getDecl();
