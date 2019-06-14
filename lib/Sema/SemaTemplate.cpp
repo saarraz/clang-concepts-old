@@ -7237,7 +7237,7 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                            : Kind),
                                           TemplateArgLoc))
       return false;
-  } else {
+  } else if (Kind != Sema::TPL_TemplateTemplateArgumentMatch) {
     const Expr *NewC = nullptr, *OldC = nullptr;
     if (const auto *TC = cast<TemplateTypeParmDecl>(New)->getTypeConstraint())
       NewC = TC->getImmediatelyDeclaredConstraint();

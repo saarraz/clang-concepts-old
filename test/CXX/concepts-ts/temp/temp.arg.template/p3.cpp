@@ -23,3 +23,12 @@ template<template<typename> class P> struct S2 { }; // expected-note 2{{'P' decl
 S2<X> s21; // expected-error{{template template argument 'X' must not be more constrained than template template parameter 'P'}}
 S2<Y> s22; // expected-error{{template template argument 'Y' must not be more constrained than template template parameter 'P'}}
 S2<Z> s23;
+
+template <template <typename...> class C>
+struct S3;
+
+template <C T>
+using N = typename T::type;
+
+using s31 = S3<N>;
+using s32 = S3<Z>;
