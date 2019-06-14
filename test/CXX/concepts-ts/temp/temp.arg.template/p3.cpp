@@ -5,7 +5,7 @@ template<typename T> concept C = T::f();
 template<typename T> concept D = C<T> && T::g();
 template<typename T> concept F = T::f();
 // expected-note@-1{{'T::f()' in the two declarations is not considered equivalent - move it to a concept and reference it from here:}}
-template<typename T, typename U> concept G = T::f();
+template<typename T, typename U> concept G = T::f(U{});
 
 template<template<C> class P> struct S1 { }; // expected-note 2{{'P' declared here}}
 

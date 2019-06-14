@@ -68,3 +68,12 @@ namespace maybe_incorrect_args_after_subst {
   template<typename... Ts> requires C2<Ts...> && true
   struct A<Ts...> {};
 }
+
+namespace unreferenced_parameters {
+  template <typename T> constexpr bool B = true;
+  template <typename T, typename U> concept C0 = B<T>;
+  template <typename T, typename U> concept C1 = C0<T, U> && C0<U, T>;
+
+  template <typename T, typename U> requires C1<T, T> struct A;
+  template <typename T, typename U> requires C1<T, U> struct A<T, U>;
+}

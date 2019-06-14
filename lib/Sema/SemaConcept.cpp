@@ -444,6 +444,15 @@ Sema::DiagnoseUnsatisfiedConstraint(const ConstraintSatisfaction& Satisfaction,
   }
 }
 namespace {
+struct TemplateParameterFinder : RecursiveASTVisitor<TemplateParameterFinder> {
+    llvm::SmallSet<TemplateTypeParmDecl *, 3> OccurringParameters;
+
+    bool VisitTemplateTypeParmType(TemplateTypeParmType *T) {
+      OccurringParameters.insert(T->getDecl());
+      return true;
+    }
+};
+
 struct AtomicConstraint {
   const Expr *ConstraintExpr;
   llvm::SmallVector<TemplateArgument, 3> ParameterMapping;
@@ -451,9 +460,19 @@ struct AtomicConstraint {
   AtomicConstraint(const Expr *ConstraintExpr,
       ArrayRef<TemplateArgument> ParameterMapping) :
       ConstraintExpr{ConstraintExpr} {
-    this->ParameterMapping.assign(ParameterMapping.data(),
-                                  ParameterMapping.data() +
-                                  ParameterMapping.size());
+    // C++2a [temp.constr.atomic]p1
+    //   An atomic constraint is formed from an expression E and a mapping from
+    //   the template parameters that appear within E to template arguments
+    //   involving the template parameters of the constrained entity, called
+    //   the parameter mapping.
+    TemplateParameterFinder Finder;
+    Finder.TraverseStmt(const_cast<Expr *>(ConstraintExpr));
+    for (TemplateTypeParmDecl *Param : Finder.OccurringParameters)
+      if (ParameterMapping.empty())
+        // This signals the identity mapping
+        this->ParameterMapping.push_back(QualType(Param->getTypeForDecl(), 0));
+      else
+        this->ParameterMapping.push_back(ParameterMapping[Param->getIndex()]);
   }
 
   bool hasMatchingParameterMapping(ASTContext &C,
@@ -534,7 +553,7 @@ struct NormalizedConstraint {
   }
   static llvm::Optional<NormalizedConstraint> fromConstraintExpr(Sema &S,
       const Expr *E,
-      const MultiLevelTemplateArgumentList *ParameterMapping = nullptr) {
+      const MultiLevelTemplateArgumentList &ParameterMapping) {
     assert(E != nullptr);
 
     // C++ [temp.constr.normal]p1.1
@@ -568,7 +587,7 @@ struct NormalizedConstraint {
       // [...]
       const ASTTemplateArgumentListInfo *Mapping =
           CSE->getTemplateArgsAsWritten();
-      if (!ParameterMapping) {
+      if (ParameterMapping.getNumLevels() == 0) {
         // This is a top level CSE.
         //
         // template<typename T>
@@ -621,7 +640,7 @@ struct NormalizedConstraint {
         MLTAL.addOuterTemplateArguments(TempList);
         return fromConstraintExpr(S,
                                   CSE->getNamedConcept()->getConstraintExpr(),
-                                  &MLTAL);
+                                  MLTAL);
       }
 
       // This is not a top level CSE.
@@ -650,7 +669,7 @@ struct NormalizedConstraint {
       };
 
       ExprResult Result = S.SubstExpr(
-          const_cast<ConceptSpecializationExpr *>(CSE), *ParameterMapping);
+          const_cast<ConceptSpecializationExpr *>(CSE), ParameterMapping);
       if (!Result.isUsable() || Result.isInvalid()) {
         // C++ [temp.constr.normal]
         // If any such substitution results in an invalid type or
@@ -714,17 +733,17 @@ struct NormalizedConstraint {
                                         AtomicConstraint(E, Converted)};
 
       return fromConstraintExpr(S, CSE->getNamedConcept()->getConstraintExpr(),
-                                &MLTAL);
+                                MLTAL);
     }
     return NormalizedConstraint{
         new (S.Context) AtomicConstraint(E,
-            ParameterMapping && ParameterMapping->getNumLevels() != 0 ?
-            ParameterMapping->getInnermost() : ArrayRef<TemplateArgument>{})};
+            ParameterMapping.getNumLevels() != 0 ?
+            ParameterMapping.getInnermost() : ArrayRef<TemplateArgument>{})};
   }
 
   static llvm::Optional<NormalizedConstraint> fromConstraintExprs(Sema &S,
       ArrayRef<const Expr *> E,
-      const MultiLevelTemplateArgumentList *ParameterMapping = nullptr) {
+      const MultiLevelTemplateArgumentList &ParameterMapping) {
     assert(E.size() != 0);
     auto First = fromConstraintExpr(S, E[0], ParameterMapping);
     if (E.size() == 1)
@@ -887,13 +906,13 @@ Sema::IsAtLeastAsConstrained(ArrayRef<const Expr *> AC1,
     return true;
 
   auto Normalized1 = NormalizedConstraint::fromConstraintExprs(*this, AC1,
-                                                               &MLTAL1);
+                                                               MLTAL1);
   if (!Normalized1)
     // Program is ill-formed at this point.
     return false;
 
   auto Normalized2 = NormalizedConstraint::fromConstraintExprs(*this, AC2,
-                                                               &MLTAL2);
+                                                               MLTAL2);
   if (!Normalized2)
     // Program is ill-formed at this point.
     return false;
@@ -947,13 +966,13 @@ bool Sema::MaybeEmitAmbiguousAtomicConstraintsDiagnostic(NamedDecl *D1,
     SFINAETrap Trap(*this);
 
     auto Normalized1 = NormalizedConstraint::fromConstraintExprs(*this, AC1,
-                                                                 &MLTAL1);
+                                                                 MLTAL1);
     if (!Normalized1)
       // Program is ill-formed at this point.
       return false;
 
     auto Normalized2 = NormalizedConstraint::fromConstraintExprs(*this, AC2,
-                                                                 &MLTAL2);
+                                                                 MLTAL2);
     if (!Normalized2)
       // Program is ill-formed at this point.
       return false;
