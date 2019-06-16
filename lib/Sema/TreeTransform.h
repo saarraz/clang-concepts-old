@@ -505,6 +505,10 @@ public:
   ExprRequirement *TransformExprRequirement(ExprRequirement *Req);
   NestedRequirement *TransformNestedRequirement(NestedRequirement *Req);
 
+  ExprResult TransformConstraintExpr(Expr *Constraint) {
+    return getDerived().TransformExpr(Constraint);
+  }
+
   /// Transform the given template name.
   ///
   /// \param SS The nested-name-specifier that qualifies the template
@@ -11404,9 +11408,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   // Transform the trailing requires clause
   ExprResult NewTrailingRequiresClause;
   if (Expr *TRC = E->getCallOperator()->getTrailingRequiresClause())
-    // FIXME: Concepts: Substitution into requires clause should only happen
-    //                  when checking satisfaction.
-    NewTrailingRequiresClause = getDerived().TransformExpr(TRC);
+    NewTrailingRequiresClause = getDerived().TransformConstraintExpr(TRC);
 
   LambdaScopeInfo *LSI = getSema().PushLambdaScope();
   Sema::FunctionScopeRAII FuncScopeCleanup(getSema());

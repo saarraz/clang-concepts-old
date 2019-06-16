@@ -1058,6 +1058,14 @@ namespace {
       return false;
     }
 
+    ExprResult TransformConstraintExpr(Expr *Constraint) {
+      // C++2a [temp.inst]p17
+      //   The type-constraints and requires-clause of a template specialization
+      //   or member function are not instantiated along with the specialization
+      //   or function itself [...]
+      return Constraint;
+    }
+
     TemplateParameterList *TransformTemplateParameterList(
                               TemplateParameterList *OrigTPL)  {
       if (!OrigTPL || !OrigTPL->size()) return OrigTPL;

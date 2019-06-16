@@ -18,3 +18,13 @@ auto l2t1 = l2('a');
 auto l2t2 = l2(1, 'a');
 // expected-error@-1{{no matching function for call to object of type '(lambda at}}
 auto l2t3 = l2((short)1, (short)1);
+
+template<typename T>
+struct invalid { using T::adslkdsa; };
+
+template<typename T>
+struct S {
+  inline static auto l3 = [] (auto x) requires (sizeof(decltype(invalid<T>{} + x)) == 0) {};
+};
+
+S<int> s1;
