@@ -883,7 +883,7 @@ def warn_cxx98_compat_lambda : Warning<
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_lambda_missing_parens : Error<
   "lambda requires '()' before %select{'mutable'|return type|"
-  "attribute specifier|'constexpr'}0">;
+  "attribute specifier|'constexpr'|'requires' clause}0">;
 def err_lambda_decl_specifier_repeated : Error<
   "%select{'mutable'|'constexpr'}0 cannot appear multiple times in a lambda declarator">;
 // C++17 lambda expressions

@@ -5650,7 +5650,8 @@ public:
                                        TypeSourceInfo *MethodType,
                                        SourceLocation EndLoc,
                                        ArrayRef<ParmVarDecl *> Params,
-                                       bool IsConstexprSpecified);
+                                       bool IsConstexprSpecified,
+                                       Expr *TrailingRequiresClause);
 
   /// Endow the lambda scope info with the relevant properties.
   void buildLambdaScope(sema::LambdaScopeInfo *LSI,

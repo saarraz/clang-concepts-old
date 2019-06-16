@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++14 -fconcepts-ts -x c++ %s -verify
+// RUN: %clang_cc1 -std=c++2a -fconcepts-ts -x c++ %s -verify
 
 // Test parsing of the optional requires-clause in a template-declaration.
 
@@ -150,3 +150,10 @@ struct B {
   static void baz(int y) requires (this, true);
   // expected-error@-1{{'this' cannot be used in a static member function declaration}}
 };
+
+auto lambda1 = [] (auto x) requires (sizeof(decltype(x)) == 1) { };
+
+auto lambda2 = [] (auto x) constexpr -> int requires (sizeof(decltype(x)) == 1) { return 0; };
+
+auto lambda3 = [] requires (sizeof(char) == 1) { };
+// expected-error@-1{{lambda requires '()' before 'requires' clause}}
