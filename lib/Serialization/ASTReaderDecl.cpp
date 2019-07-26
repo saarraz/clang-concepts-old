@@ -2084,7 +2084,6 @@ DeclID ASTDeclReader::VisitTemplateDecl(TemplateDecl *D) {
   DeclID PatternID = ReadDeclID();
   auto *TemplatedDecl = cast_or_null<NamedDecl>(Reader.GetDecl(PatternID));
   TemplateParameterList *TemplateParams = Record.readTemplateParameterList();
-  // FIXME handle associated constraints
   D->init(TemplatedDecl, TemplateParams);
 
   return PatternID;
@@ -2250,7 +2249,8 @@ void ASTDeclReader::VisitClassTemplatePartialSpecializationDecl(
                                     ClassTemplatePartialSpecializationDecl *D) {
   RedeclarableResult Redecl = VisitClassTemplateSpecializationDeclImpl(D);
 
-  D->TemplateParams = Record.readTemplateParameterList();
+  TemplateParameterList *Params = Record.readTemplateParameterList();
+  D->TemplateParams = Params;
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
 
   // These are read/set from/to the first declaration.
@@ -2352,7 +2352,8 @@ void ASTDeclReader::VisitVarTemplatePartialSpecializationDecl(
     VarTemplatePartialSpecializationDecl *D) {
   RedeclarableResult Redecl = VisitVarTemplateSpecializationDeclImpl(D);
 
-  D->TemplateParams = Record.readTemplateParameterList();
+  TemplateParameterList *Params = Record.readTemplateParameterList();
+  D->TemplateParams = Params;
   D->ArgsAsWritten = Record.readASTTemplateArgumentListInfo();
 
   // These are read/set from/to the first declaration.
@@ -2368,6 +2369,7 @@ void ASTDeclReader::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
 
   D->setDeclaredWithTypename(Record.readInt());
 
+  // TODO: Concepts: Immediately introduced constraint
   if (Record.readInt())
     D->setDefaultArgument(GetTypeSourceInfo());
 }
