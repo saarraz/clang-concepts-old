@@ -5105,15 +5105,26 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
       D->getTemplateArgs().data(), D->getTemplateArgs().size(), TemplateArgs))
     return std::move(Err);
 
-  // Try to find an existing specialization with these template arguments.
+  // Try to find an existing specialization with these template arguments and
+  // constraints.
   void *InsertPos = nullptr;
   ClassTemplateSpecializationDecl *PrevDecl = nullptr;
   ClassTemplatePartialSpecializationDecl *PartialSpec =
             dyn_cast<ClassTemplatePartialSpecializationDecl>(D);
-  if (PartialSpec)
+  llvm::SmallVector<const Expr *, 3> PartialSpecAC;
+  if (PartialSpec) {
+    PartialSpec->getAssociatedConstraints(PartialSpecAC);
+    // Import associated constraints into the "To" context.
+    for (const Expr *&Constraint : PartialSpecAC) {
+      ExpectedExpr ConstraintOrErr = import(Constraint);
+      if (!ConstraintOrErr)
+        return ConstraintOrErr.takeError();
+      Constraint = *ConstraintOrErr;
+    }
     PrevDecl =
-        ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos);
-  else
+        ClassTemplate->findPartialSpecialization(TemplateArgs, PartialSpecAC,
+                                                 InsertPos);
+  } else
     PrevDecl = ClassTemplate->findSpecialization(TemplateArgs, InsertPos);
 
   if (PrevDecl) {
@@ -5186,10 +5197,11 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
 
     // Update InsertPos, because preceding import calls may have invalidated
     // it by adding new specializations.
-    if (!ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos))
+    auto *PartSpec2 = cast<ClassTemplatePartialSpecializationDecl>(D2);
+    if (!ClassTemplate->findPartialSpecialization(TemplateArgs, PartialSpecAC,
+                                                  InsertPos))
       // Add this partial specialization to the class template.
-      ClassTemplate->AddPartialSpecialization(
-          cast<ClassTemplatePartialSpecializationDecl>(D2), InsertPos);
+      ClassTemplate->AddPartialSpecialization(PartSpec2, InsertPos);
 
   } else { // Not a partial specialization.
     if (GetImportedOrCreateDecl(

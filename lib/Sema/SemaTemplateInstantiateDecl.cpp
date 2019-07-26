@@ -3543,8 +3543,10 @@ TemplateDeclInstantiator::InstantiateClassTemplatePartialSpecialization(
   // Figure out where to insert this class template partial specialization
   // in the member template's set of class template partial specializations.
   void *InsertPos = nullptr;
+  SmallVector<const Expr *, 3> InstAC;
+  InstParams->getAssociatedConstraints(InstAC);
   ClassTemplateSpecializationDecl *PrevDecl
-    = ClassTemplate->findPartialSpecialization(Converted, InsertPos);
+    = ClassTemplate->findPartialSpecialization(Converted, InstAC, InsertPos);
 
   // Build the canonical type that describes the converted template
   // arguments of the class template partial specialization.
@@ -3667,8 +3669,10 @@ TemplateDeclInstantiator::InstantiateVarTemplatePartialSpecialization(
   // Figure out where to insert this variable template partial specialization
   // in the member template's set of variable template partial specializations.
   void *InsertPos = nullptr;
+  llvm::SmallVector<const Expr *, 3> InstAC;
+  InstParams->getAssociatedConstraints(InstAC);
   VarTemplateSpecializationDecl *PrevDecl =
-      VarTemplate->findPartialSpecialization(Converted, InsertPos);
+      VarTemplate->findPartialSpecialization(Converted, InstAC, InsertPos);
 
   // Build the canonical type that describes the converted template
   // arguments of the variable template partial specialization.
