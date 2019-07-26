@@ -6,6 +6,7 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_library(clangAST
   APValue.cpp
+  ASTConcept.cpp
   ASTConsumer.cpp
   ASTContext.cpp
   ASTDiagnostic.cpp

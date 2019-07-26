@@ -1673,7 +1673,8 @@ ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
     NestedNameSpecifierLoc NNS, SourceLocation TemplateKWLoc,
     SourceLocation ConceptNameLoc, NamedDecl *FoundDecl,
     ConceptDecl *NamedConcept, const ASTTemplateArgumentListInfo *ArgsAsWritten,
-    ArrayRef<TemplateArgument> ConvertedArgs, bool IsSatisfied)
+    ArrayRef<TemplateArgument> ConvertedArgs,
+    const ConstraintSatisfaction &Satisfaction)
     : Expr(ConceptSpecializationExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
            /*TypeDependent=*/false,
            // All the flags below are set in setTemplateArguments.
@@ -1681,8 +1682,8 @@ ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
            /*ContainsUnexpandedParameterPacks=*/false),
       NestedNameSpec(NNS), TemplateKWLoc(TemplateKWLoc),
       ConceptNameLoc(ConceptNameLoc), FoundDecl(FoundDecl),
-      NamedConcept(NamedConcept, IsSatisfied),
-      NumTemplateArgs(ConvertedArgs.size()) {
+      NamedConcept(NamedConcept), NumTemplateArgs(ConvertedArgs.size()),
+      Satisfaction(ASTConstraintSatisfaction::Create(C, Satisfaction)) {
   setTemplateArguments(ArgsAsWritten, ConvertedArgs);
 }
 
@@ -1732,13 +1733,13 @@ ConceptSpecializationExpr::Create(ASTContext &C, NestedNameSpecifierLoc NNS,
                                   ConceptDecl *NamedConcept,
                                const ASTTemplateArgumentListInfo *ArgsAsWritten,
                                   ArrayRef<TemplateArgument> ConvertedArgs,
-                                  bool IsSatisfied) {
+                                  const ConstraintSatisfaction &Satisfaction) {
   void *Buffer = C.Allocate(totalSizeToAlloc<TemplateArgument>(
                                 ConvertedArgs.size()));
   return new (Buffer) ConceptSpecializationExpr(C, NNS, TemplateKWLoc,
                                                 ConceptNameLoc, FoundDecl,
                                                 NamedConcept, ArgsAsWritten,
-                                                ConvertedArgs, IsSatisfied);
+                                                ConvertedArgs, Satisfaction);
 }
 
 ConceptSpecializationExpr *
