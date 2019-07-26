@@ -176,6 +176,17 @@ def err_function_declared_typedef : Error<
 def err_at_defs_cxx : Error<"@defs is not supported in Objective-C++">;
 def err_at_in_class : Error<"unexpected '@' in member specification">;
 def err_unexpected_semi : Error<"unexpected ';' before %0">;
+def err_expected_primary_got_unary : Error<
+  "expected primary expression before %0; did you forget parentheses?">;
+def note_potential_bin_op_in_constraint_logical_or : Note<
+  "%0 is not considered part of the requires clause (use parentheses to "
+  "include it)">;
+def note_potential_function_call_in_constraint_logical_or : Note<
+  "function call must be parenthesized to be considered part of the requires "
+  "clause">;
+def err_potential_function_call_in_constraint_logical_or : Error<
+  "function call must be parenthesized to be considered part of the requires "
+  "clause">;
 
 def err_expected_fn_body : Error<
   "expected function body after function declarator">;
@@ -303,6 +314,12 @@ def err_init_list_bin_op : Error<"initializer list cannot be used on the "
 def warn_cxx98_compat_trailing_return_type : Warning<
   "trailing return types are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def err_requires_clause_must_come_after_trailing_return : Error<
+  "trailing return type must come before trailing requires clause">;
+def err_requires_clause_on_declarator_not_declaring_a_function : Error<
+  "trailing requires clause can only be used when declaring a function">;
+def err_requires_clause_inside_parens : Error<
+  "trailing requires clause should be placed outside parentheses">;
 def ext_auto_storage_class : ExtWarn<
   "'auto' storage class specifier is not permitted in C++11, and will not "
   "be supported in future releases">, InGroup<DiagGroup<"auto-storage-class">>;
@@ -875,7 +892,7 @@ def warn_cxx98_compat_lambda : Warning<
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_lambda_missing_parens : Error<
   "lambda requires '()' before %select{'mutable'|return type|"
-  "attribute specifier|'constexpr'|'consteval'}0">;
+  "attribute specifier|'constexpr'|'consteval'|'requires' clause}0">;
 def err_lambda_decl_specifier_repeated : Error<
   "%select{'mutable'|'constexpr'|'consteval'}0 cannot appear multiple times in a lambda declarator">;
 def err_lambda_capture_misplaced_ellipsis : Error<

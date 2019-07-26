@@ -371,6 +371,7 @@ CXXMethodDecl *Sema::startLambdaDefinition(
     CXXRecordDecl *Class, SourceRange IntroducerRange,
     TypeSourceInfo *MethodTypeInfo, SourceLocation EndLoc,
     ArrayRef<ParmVarDecl *> Params, ConstexprSpecKind ConstexprKind,
+    Expr *TrailingRequiresClause,
     Optional<std::pair<unsigned, Decl *>> Mangling) {
   QualType MethodType = MethodTypeInfo->getType();
   TemplateParameterList *TemplateParams =
@@ -405,7 +406,7 @@ CXXMethodDecl *Sema::startLambdaDefinition(
       DeclarationNameInfo(MethodName, IntroducerRange.getBegin(),
                           MethodNameLoc),
       MethodType, MethodTypeInfo, SC_None,
-      /*isInline=*/true, ConstexprKind, EndLoc);
+      /*isInline=*/true, ConstexprKind, EndLoc, TrailingRequiresClause);
   Method->setAccess(AS_public);
 
   // Temporarily set the lexical declaration context to the current
@@ -936,7 +937,8 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
 
   CXXMethodDecl *Method =
       startLambdaDefinition(Class, Intro.Range, MethodTyInfo, EndLoc, Params,
-                            ParamInfo.getDeclSpec().getConstexprSpecifier());
+                            ParamInfo.getDeclSpec().getConstexprSpecifier(),
+                            ParamInfo.getTrailingRequiresClause());
   if (ExplicitParams)
     CheckCXXDefaultArguments(Method);
 

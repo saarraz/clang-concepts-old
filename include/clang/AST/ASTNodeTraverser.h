@@ -365,6 +365,9 @@ public:
       for (const auto *I : C->inits())
         Visit(I);
 
+    if (const Expr *TRC = D->getTrailingRequiresClause())
+      Visit(TRC);
+
     if (D->doesThisDeclarationHaveABody())
       Visit(D->getBody());
   }
