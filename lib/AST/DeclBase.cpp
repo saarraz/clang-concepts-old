@@ -802,6 +802,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case OMPRequires:
     case OMPCapturedExpr:
     case Empty:
+    case RequiresExprBody:
       // Never looked up by name.
       return 0;
   }
@@ -1169,6 +1170,7 @@ DeclContext *DeclContext::getPrimaryContext() {
   case Decl::Captured:
   case Decl::OMPDeclareReduction:
   case Decl::OMPDeclareMapper:
+  case Decl::RequiresExprBody:
     // There is only one DeclContext for these entities.
     return this;
 

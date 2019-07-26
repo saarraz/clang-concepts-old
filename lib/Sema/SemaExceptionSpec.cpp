@@ -1315,6 +1315,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::StringLiteralClass:
   case Expr::SourceLocExprClass:
   case Expr::ConceptSpecializationExprClass:
+  case Expr::RequiresExprClass:
     // These expressions can never throw.
     return CT_Cannot;
 

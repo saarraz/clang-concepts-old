@@ -2020,7 +2020,11 @@ def err_auto_not_allowed : Error<
   "|in template argument|in typedef|in type alias|in function return type"
   "|in conversion function type|here|in lambda parameter"
   "|in type allocated by 'new'|in K&R-style function parameter"
-  "|in template parameter|in friend declaration}1">;
+  "|in template parameter|in friend declaration"
+  "|in requires expression parameter}1">;
+def err_auto_not_allowed_in_return_type_requirement : Error<
+  "%select{'auto'|'decltype(auto)'|'__auto_type'}0 not allowed in expression "
+  "type requirement">;
 def err_dependent_deduced_tst : Error<
   "typename specifier refers to "
   "%select{class template|function template|variable template|alias template|"
@@ -2481,13 +2485,13 @@ def note_constraints_not_satisfied : Note<
 def note_substituted_constraint_expr_is_ill_formed : Note<
   "because substituted constraint expression is ill-formed%0">;
 def note_atomic_constraint_evaluated_to_false : Note<
-  "%select{and |because }0'%1' evaluated to false">;
+  "%select{and|because}0 '%1' evaluated to false">;
 def note_concept_specialization_constraint_evaluated_to_false : Note<
-  "%select{and |because }0'%1' evaluated to false">;
+  "%select{and|because}0 '%1' evaluated to false">;
 def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
-  "%select{and |because }0%1 does not satisfy %2">;
+  "%select{and|because}0 %1 does not satisfy %2">;
 def note_atomic_constraint_evaluated_to_false_elaborated : Note<
-  "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
+  "%select{and|because}0 '%1' (%2 %3 %4) evaluated to false">;
 def note_could_not_normalize_argument_substitution_failed : Note<
   "when substituting into %0 %1. Make sure concept arguments are "
   "valid for any substitution">;
@@ -2495,6 +2499,49 @@ def err_constrained_virtual_method : Error<
   "virtual function cannot have a requires clause">;
 def err_reference_to_function_with_unsatisfied_constraints : Error<
   "invalid reference to function %0: constraints not satisfied">;
+def note_requires_expr_ill_formed_expr : Note<
+  "expression is invalid: %0">;
+def note_requires_expr_no_implicit_conversion : Note<
+  "no implicit conversion exists between expression type %0 and expected type "
+  "%1">;
+def err_requires_expr_local_parameter_default_argument : Error<
+  "default arguments not allowed for parameters of a requires expression">;
+def err_requires_expr_parameter_referenced_in_evaluated_context : Error<
+  "constraint variable %0 cannot be used in an evaluated context">;
+def note_expr_requirement_expr_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid: %2">;
+def note_expr_requirement_expr_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
+def note_expr_requirement_noexcept_not_met : Note<
+  "%select{and|because}0 '%1' may throw an exception">;
+def note_expr_requirement_type_requirement_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid: %2">;
+def note_expr_requirement_type_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
+def note_expr_requirement_ambiguous_conversion : Note<
+  "%select{and|because}0 conversion from expression type %1 to required type %2"
+  " is ambiguous">;
+def note_expr_requirement_no_implicit_conversion : Note<
+  "%select{and|because}0 expression type %1 not implicitly convertible to "
+  "required type %2">;
+def note_expr_requirement_constraints_not_satisfied : Note<
+  "%select{and|because}0 type constraint '%1' was not satisfied:">;
+def note_expr_requirement_constraints_not_satisfied_simple : Note<
+  "%select{and|because}0 expression type %1 does not satisfy %2:">;
+def note_type_requirement_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid: %2">;
+def note_type_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
+def err_type_requirement_non_type_template : Error<
+  "'%0' refers to a %select{class template|function template|"
+  "variable template|alias template|template template parameter|template}1 "
+  "and not a type template">;
+def err_type_requirement_no_such_type : Error<
+  "'%0' does not name a type">;
+def note_nested_requirement_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid: %2">;
+def note_nested_requirement_unknown_substitution_error : Note<
+  "%select{and|because}0 '%1' would be invalid">;
 def note_ambiguous_atomic_constraints : Note<
   "'%0' in the two declarations is not considered equivalent - move it to a "
   "concept and reference it from here:">;
@@ -4399,6 +4446,8 @@ def note_template_type_alias_instantiation_here : Note<
   "in instantiation of template type alias %0 requested here">;
 def note_template_exception_spec_instantiation_here : Note<
   "in instantiation of exception specification for %0 requested here">;
+def note_template_requirement_instantiation_here : Note<
+  "in instantiation of requirement here">;
 def warn_var_template_missing : Warning<"instantiation of variable %q0 "
   "required here, but no definition is available">,
   InGroup<UndefinedVarTemplate>;
@@ -4434,6 +4483,8 @@ def note_template_default_arg_checking : Note<
   "while checking a default template argument used here">;
 def note_concept_specialization_here : Note<
   "while checking the satisfaction of concept '%0' requested here">;
+def note_nested_requirement_here : Note<
+  "while checking the satisfaction of nested requirement requested here">;
 def note_checking_constraints_for_template_id_here : Note<
   "while checking constraint satisfaction for template '%0' required here">;
 def note_checking_constraints_for_var_spec_id_here : Note<
