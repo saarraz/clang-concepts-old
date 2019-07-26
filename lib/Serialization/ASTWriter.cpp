@@ -6026,6 +6026,7 @@ void ASTRecordWriter::AddTemplateParameterList(
   Record->push_back(TemplateParams->size());
   for (const auto &P : *TemplateParams)
     AddDeclRef(P);
+  // TODO: Concepts: We do not preserve constraint inheritance here.
   if (const Expr *RequiresClause = TemplateParams->getRequiresClause()) {
     Record->push_back(true);
     AddStmt(const_cast<Expr*>(RequiresClause));

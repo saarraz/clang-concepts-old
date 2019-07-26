@@ -171,7 +171,7 @@ using r14i2 = r14<const short*, const short*>; // expected-error{{constraints no
 
 // Substitution failure in type constraint
 
-template<typename T> requires requires (T t) { { t } -> Same<typename T::type>; } // expected-note{{because 'Same<expr-type, typename T::type>' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
+template<typename T> requires requires (T t) { { t } -> Same<typename T::type>; } // expected-note{{because 'Same<typename T::type>' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
 struct r15 {};
 
 using r15i1 = r15<M>;

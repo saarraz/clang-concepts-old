@@ -2278,10 +2278,7 @@ void StmtPrinter::VisitRequiresExpr(RequiresExpr *E) {
     } else {
       auto *NestedReq = cast<NestedRequirement>(Req);
       OS << "requires ";
-      if (NestedReq->isSubstitutionFailure())
-        OS << "<<error-expression>>";
-      else
-        PrintExpr(NestedReq->getConstraintExpr());
+      PrintExpr(NestedReq->getConstraintExpr());
     }
     OS << "; ";
   }

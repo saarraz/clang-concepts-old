@@ -49,10 +49,12 @@ TemplateParameterList::TemplateParameterList(const ASTContext& C,
                                              SourceLocation LAngleLoc,
                                              ArrayRef<NamedDecl *> Params,
                                              SourceLocation RAngleLoc,
-                                             Expr *RequiresClause)
+                                             Expr *RequiresClause,
+                                    TemplateParameterList *InheritedConstraints)
     : TemplateLoc(TemplateLoc), LAngleLoc(LAngleLoc), RAngleLoc(RAngleLoc),
       NumParams(Params.size()), ContainsUnexpandedParameterPack(false),
-      HasRequiresClause(RequiresClause != nullptr),
+      HasRequiresClause(RequiresClause != nullptr ||
+          (InheritedConstraints && InheritedConstraints->HasRequiresClause)),
       HasConstrainedParameters(false) {
   for (unsigned Idx = 0; Idx < NumParams; ++Idx) {
     NamedDecl *P = Params[Idx];
@@ -80,9 +82,15 @@ TemplateParameterList::TemplateParameterList(const ASTContext& C,
   }
 
   if (HasRequiresClause) {
-    if (RequiresClause->containsUnexpandedParameterPack())
-      ContainsUnexpandedParameterPack = true;
-    *getTrailingObjects<Expr *>() = RequiresClause;
+    auto &P = *getTrailingObjects<llvm::PointerUnion<Expr *,
+                                                    TemplateParameterList *>>();
+    if (InheritedConstraints)
+      P = InheritedConstraints;
+    else {
+      if (RequiresClause->containsUnexpandedParameterPack())
+        ContainsUnexpandedParameterPack = true;
+      P = RequiresClause;
+    }
   }
 }
 
@@ -90,12 +98,19 @@ TemplateParameterList *
 TemplateParameterList::Create(const ASTContext &C, SourceLocation TemplateLoc,
                               SourceLocation LAngleLoc,
                               ArrayRef<NamedDecl *> Params,
-                              SourceLocation RAngleLoc, Expr *RequiresClause) {
-  void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *, Expr *>(
-                             Params.size(), RequiresClause ? 1u : 0u),
+                              SourceLocation RAngleLoc, Expr *RequiresClause,
+                              TemplateParameterList *InheritedConstraints) {
+  assert(!RequiresClause || !InheritedConstraints);
+  void *Mem = C.Allocate(totalSizeToAlloc<NamedDecl *,
+                                          llvm::PointerUnion<Expr *,
+                                                      TemplateParameterList *>>(
+                             Params.size(), RequiresClause ||
+                           (InheritedConstraints &&
+                            InheritedConstraints->HasRequiresClause) ? 1u : 0u),
                          alignof(TemplateParameterList));
   return new (Mem) TemplateParameterList(C, TemplateLoc, LAngleLoc, Params,
-                                         RAngleLoc, RequiresClause);
+                                         RAngleLoc, RequiresClause,
+                                         InheritedConstraints);
 }
 
 unsigned TemplateParameterList::getMinRequiredArguments() const {
@@ -534,12 +549,12 @@ TemplateTypeParmDecl::Create(const ASTContext &C, DeclContext *DC,
                              SourceLocation KeyLoc, SourceLocation NameLoc,
                              unsigned D, unsigned P, IdentifierInfo *Id,
                              bool Typename, bool ParameterPack,
-                             bool HasTypeConstraint) {
+                             bool OwnsTypeConstraint) {
   auto *TTPDecl =
       new (C, DC,
-           additionalSizeToAlloc<TypeConstraint>(HasTypeConstraint ? 1 : 0))
+           additionalSizeToAlloc<TypeConstraint>(OwnsTypeConstraint ? 1 : 0))
       TemplateTypeParmDecl(DC, KeyLoc, NameLoc, Id, Typename,
-                           HasTypeConstraint);
+                           OwnsTypeConstraint);
   QualType TTPType = C.getTemplateTypeParmType(D, P, ParameterPack, TTPDecl);
   TTPDecl->setTypeForDecl(TTPType.getTypePtr());
   return TTPDecl;
@@ -554,9 +569,9 @@ TemplateTypeParmDecl::CreateDeserialized(const ASTContext &C, unsigned ID) {
 
 TemplateTypeParmDecl *
 TemplateTypeParmDecl::CreateDeserialized(const ASTContext &C, unsigned ID,
-                                         bool HasTypeConstraint) {
+                                         bool OwnsTypeConstraint) {
   return new (C, ID,
-              additionalSizeToAlloc<TypeConstraint>(HasTypeConstraint ? 1 : 0))
+              additionalSizeToAlloc<TypeConstraint>(OwnsTypeConstraint ? 1 : 0))
          TemplateTypeParmDecl(nullptr, SourceLocation(), SourceLocation(),
                               nullptr, false, false);
 }
@@ -591,14 +606,14 @@ void TemplateTypeParmDecl::setTypeConstraint(NestedNameSpecifierLoc NNS,
     DeclarationNameInfo NameInfo, NamedDecl *FoundDecl, ConceptDecl *CD,
     const ASTTemplateArgumentListInfo *ArgsAsWritten,
     Expr *ImmediatelyDeclaredConstraint) {
-  assert(HasTypeConstraint &&
-         "HasTypeConstraint=true must be passed at construction in order to "
+  assert(OwnsTypeConstraint &&
+         "OwnsTypeConstraint=true must be passed at construction in order to "
          "call setTypeConstraint");
-  assert(!TypeConstraintInitialized &&
+  assert(TypeConstraintStatus.getInt() == TCS_Uninitialized &&
          "TypeConstraint was already initialized!");
   new (getTrailingObjects<TypeConstraint>()) TypeConstraint(NNS, NameInfo,
       FoundDecl, CD, ArgsAsWritten, ImmediatelyDeclaredConstraint);
-  TypeConstraintInitialized = true;
+  TypeConstraintStatus.setInt(TCS_Owned);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1246,7 +1261,7 @@ createMakeIntegerSeqParameterList(const ASTContext &C, DeclContext *DC) {
   auto *T = TemplateTypeParmDecl::Create(
       C, DC, SourceLocation(), SourceLocation(), /*Depth=*/1, /*Position=*/0,
       /*Id=*/nullptr, /*Typename=*/true, /*ParameterPack=*/false,
-      /*HasTypeConstraint=*/false);
+      /*OwnsTypeConstraint=*/false);
   T->setImplicit(true);
 
   // T ...Ints
@@ -1272,7 +1287,7 @@ createMakeIntegerSeqParameterList(const ASTContext &C, DeclContext *DC) {
   auto *TemplateTypeParm = TemplateTypeParmDecl::Create(
       C, DC, SourceLocation(), SourceLocation(), /*Depth=*/0, /*Position=*/1,
       /*Id=*/nullptr, /*Typename=*/true, /*ParameterPack=*/false,
-      /*HasTypeConstraint=*/false);
+      /*OwnsTypeConstraint=*/false);
   TemplateTypeParm->setImplicit(true);
 
   // T N
@@ -1301,7 +1316,7 @@ createTypePackElementParameterList(const ASTContext &C, DeclContext *DC) {
   auto *Ts = TemplateTypeParmDecl::Create(
       C, DC, SourceLocation(), SourceLocation(), /*Depth=*/0, /*Position=*/1,
       /*Id=*/nullptr, /*Typename=*/true, /*ParameterPack=*/true,
-      /*HasTypeConstraint=*/false);
+      /*OwnsTypeConstraint=*/false);
   Ts->setImplicit(true);
 
   // template <std::size_t Index, typename ...T>
