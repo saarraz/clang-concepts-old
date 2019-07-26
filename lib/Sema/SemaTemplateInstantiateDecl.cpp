@@ -2366,9 +2366,35 @@ Decl *TemplateDeclInstantiator::VisitTemplateTypeParmDecl(
   TemplateTypeParmDecl *Inst = TemplateTypeParmDecl::Create(
       SemaRef.Context, Owner, D->getBeginLoc(), D->getLocation(),
       D->getDepth() - TemplateArgs.getNumSubstitutedLevels(), D->getIndex(),
-      D->getIdentifier(), D->wasDeclaredWithTypename(), D->isParameterPack());
+      D->getIdentifier(), D->wasDeclaredWithTypename(), D->isParameterPack(),
+      D->hasTypeConstraint());
   Inst->setAccess(AS_public);
+  if (auto *TC = D->getTypeConstraint()) {
+    // TODO: Concepts: do not instantiate the constraint (delayed constraint
+    // substitution)
+    const ASTTemplateArgumentListInfo *TemplArgInfo
+      = TC->getTemplateArgsAsWritten();
+    TemplateArgumentListInfo InstArgs;
 
+    if (TemplArgInfo) {
+      InstArgs.setLAngleLoc(TemplArgInfo->LAngleLoc);
+      InstArgs.setRAngleLoc(TemplArgInfo->RAngleLoc);
+      if (SemaRef.Subst(TemplArgInfo->getTemplateArgs(),
+                        TemplArgInfo->NumTemplateArgs,
+                        InstArgs, TemplateArgs))
+        return nullptr;
+    }
+    ExprResult Result =
+        SemaRef.SubstExpr(TC->getImmediatelyDeclaredConstraint(), TemplateArgs);
+    if (Result.isInvalid())
+      return nullptr;
+
+    Inst->setTypeConstraint(TC->getNestedNameSpecifierLoc(),
+        TC->getConceptNameInfo(), TC->getFoundDecl(), TC->getNamedConcept(),
+        TemplArgInfo ? ASTTemplateArgumentListInfo::Create(SemaRef.Context,
+                                                           InstArgs) : nullptr,
+        Result.get());
+  }
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
     TypeSourceInfo *InstantiatedDefaultArg =
         SemaRef.SubstType(D->getDefaultArgumentInfo(), TemplateArgs,

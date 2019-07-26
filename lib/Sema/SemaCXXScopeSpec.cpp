@@ -468,6 +468,7 @@ public:
 ///       'true' if the identifier is treated as if it was followed by ':',
 ///        not '::'.
 /// \param OnlyNamespace If true, only considers namespaces in lookup.
+/// \param SuppressDiagnostics If true, will not emit diagnostics on an error.
 ///
 /// This routine differs only slightly from ActOnCXXNestedNameSpecifier, in
 /// that it contains an extra parameter \p ScopeLookupResult, which provides
@@ -485,7 +486,8 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
                                        NamedDecl *ScopeLookupResult,
                                        bool ErrorRecoveryLookup,
                                        bool *IsCorrectedToColon,
-                                       bool OnlyNamespace) {
+                                       bool OnlyNamespace,
+                                       bool SuppressDiagnostics) {
   if (IdInfo.Identifier->isEditorPlaceholder())
     return true;
   LookupResult Found(*this, IdInfo.Identifier, IdInfo.IdentifierLoc,
@@ -580,7 +582,7 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
     return false;
   }
 
-  if (Found.empty() && !ErrorRecoveryLookup) {
+  if (Found.empty() && !ErrorRecoveryLookup && !SuppressDiagnostics) {
     // If identifier is not found as class-name-or-namespace-name, but is found
     // as other entity, don't look for typos.
     LookupResult R(*this, Found.getLookupNameInfo(), LookupOrdinaryName);
@@ -614,7 +616,8 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
     }
   }
 
-  if (Found.empty() && !ErrorRecoveryLookup && !getLangOpts().MSVCCompat) {
+  if (Found.empty() && !ErrorRecoveryLookup && !SuppressDiagnostics
+      && !getLangOpts().MSVCCompat) {
     // We haven't found anything, and we're not recovering from a
     // different kind of error, so look for typos.
     DeclarationName Name = Found.getLookupName();
@@ -684,7 +687,7 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
            !Context.hasSameType(
                             Context.getTypeDeclType(cast<TypeDecl>(OuterDecl)),
                                Context.getTypeDeclType(cast<TypeDecl>(SD))))) {
-        if (ErrorRecoveryLookup)
+        if (ErrorRecoveryLookup || SuppressDiagnostics)
           return true;
 
          Diag(IdInfo.IdentifierLoc,
@@ -766,7 +769,7 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
 
   // Otherwise, we have an error case.  If we don't want diagnostics, just
   // return an error now.
-  if (ErrorRecoveryLookup)
+  if (ErrorRecoveryLookup || SuppressDiagnostics)
     return true;
 
   // If we didn't find anything during our lookup, try again with
@@ -834,13 +837,15 @@ bool Sema::ActOnCXXNestedNameSpecifier(Scope *S, NestedNameSpecInfo &IdInfo,
                                        bool EnteringContext, CXXScopeSpec &SS,
                                        bool ErrorRecoveryLookup,
                                        bool *IsCorrectedToColon,
-                                       bool OnlyNamespace) {
+                                       bool OnlyNamespace,
+                                       bool SuppressDiagnostic) {
   if (SS.isInvalid())
     return true;
 
   return BuildCXXNestedNameSpecifier(S, IdInfo, EnteringContext, SS,
                                      /*ScopeLookupResult=*/nullptr, false,
-                                     IsCorrectedToColon, OnlyNamespace);
+                                     IsCorrectedToColon, OnlyNamespace,
+                                     SuppressDiagnostic);
 }
 
 bool Sema::ActOnCXXNestedNameSpecifierDecltype(CXXScopeSpec &SS,

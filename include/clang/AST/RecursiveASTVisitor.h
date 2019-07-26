@@ -1765,9 +1765,8 @@ DEF_TRAVERSE_DECL(TemplateTemplateParmDecl, {
   // D is the "T" in something like
   //   template <template <typename> class T> class container { };
   TRY_TO(TraverseDecl(D->getTemplatedDecl()));
-  if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited()) {
+  if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     TRY_TO(TraverseTemplateArgumentLoc(D->getDefaultArgument()));
-  }
   TRY_TO(TraverseTemplateParameterListHelper(D->getTemplateParameters()));
 })
 
@@ -1779,6 +1778,11 @@ DEF_TRAVERSE_DECL(TemplateTypeParmDecl, {
   // D is the "T" in something like "template<typename T> class vector;"
   if (D->getTypeForDecl())
     TRY_TO(TraverseType(QualType(D->getTypeForDecl(), 0)));
+  if (const auto *TC = D->getTypeConstraint())
+    if (TC->wereArgumentsSpecified())
+      TRY_TO(TraverseTemplateArgumentLocsHelper(
+          TC->getTemplateArgsAsWritten()->getTemplateArgs(),
+          TC->getTemplateArgsAsWritten()->NumTemplateArgs));
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     TRY_TO(TraverseTypeLoc(D->getDefaultArgumentInfo()->getTypeLoc()));
 })

@@ -1600,10 +1600,21 @@ void ASTDeclWriter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
 }
 
 void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
+  Record.push_back(D->hasTypeConstraint());
   VisitTypeDecl(D);
 
   Record.push_back(D->wasDeclaredWithTypename());
-  // TODO: Concepts - constrained parameters.
+
+  const TypeConstraint *TC = D->getTypeConstraint();
+  Record.push_back(TC != nullptr);
+  if (TC) {
+    Record.AddNestedNameSpecifierLoc(TC->getNestedNameSpecifierLoc());
+    Record.AddDeclarationNameInfo(TC->getConceptNameInfo());
+    Record.AddDeclRef(TC->getNamedConcept());
+    Record.AddASTTemplateArgumentListInfo(TC->getTemplateArgsAsWritten());
+    Record.AddStmt(TC->getImmediatelyDeclaredConstraint());
+  }
+
   bool OwnsDefaultArg = D->hasDefaultArgument() &&
                         !D->defaultArgumentWasInherited();
   Record.push_back(OwnsDefaultArg);
@@ -1633,7 +1644,6 @@ void ASTDeclWriter::VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D) {
 
     Code = serialization::DECL_EXPANDED_NON_TYPE_TEMPLATE_PARM_PACK;
   } else {
-    // TODO: Concepts - constrained parameters.
     // Rest of NonTypeTemplateParmDecl.
     Record.push_back(D->isParameterPack());
     bool OwnsDefaultArg = D->hasDefaultArgument() &&
@@ -1663,7 +1673,6 @@ void ASTDeclWriter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
       Record.AddTemplateParameterList(D->getExpansionTemplateParameters(I));
     Code = serialization::DECL_EXPANDED_TEMPLATE_TEMPLATE_PARM_PACK;
   } else {
-    // TODO: Concepts - constrained parameters.
     // Rest of TemplateTemplateParmDecl.
     Record.push_back(D->isParameterPack());
     bool OwnsDefaultArg = D->hasDefaultArgument() &&

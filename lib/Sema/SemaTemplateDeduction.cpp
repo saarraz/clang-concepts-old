@@ -4506,11 +4506,12 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *&Init, QualType &Result,
 
   // Build template<class TemplParam> void Func(FuncParam);
   TemplateTypeParmDecl *TemplParam = TemplateTypeParmDecl::Create(
-      Context, nullptr, SourceLocation(), Loc, Depth, 0, nullptr, false, false);
+      Context, nullptr, SourceLocation(), Loc, Depth, 0, nullptr, false, false,
+      false);
   QualType TemplArg = QualType(TemplParam->getTypeForDecl(), 0);
   NamedDecl *TemplParamPtr = TemplParam;
   FixedSizeTemplateParameterListStorage<1, false> TemplateParamsSt(
-      Loc, Loc, TemplParamPtr, Loc, nullptr);
+      Context, Loc, Loc, TemplParamPtr, Loc, nullptr);
 
   QualType FuncParam =
       SubstituteDeducedTypeTransform(*this, TemplArg, /*UseTypeSugar*/false)
@@ -4929,11 +4930,11 @@ Sema::getMoreSpecializedTemplate(FunctionTemplateDecl *FT1,
     llvm::SmallVector<const Expr *, 3> AC1, AC2;
     FT1->getAssociatedConstraints(AC1);
     FT2->getAssociatedConstraints(AC2);
-    bool MoreConstrained1 = IsMoreConstrained(FT1, AC1, FT2, AC2);
-    bool MoreConstrained2 = IsMoreConstrained(FT2, AC2, FT1, AC1);
-    if (MoreConstrained1 == MoreConstrained2)
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(FT1, AC1, FT2, AC2);
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(FT2, AC2, FT1, AC1);
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2)
       return nullptr;
-    return MoreConstrained1 ? FT1 : FT2;
+    return AtLeastAsConstrained1 ? FT1 : FT2;
   };
 
   bool Better1 = isAtLeastAsSpecializedAs(*this, Loc, FT1, FT2, TPOC,
@@ -5154,11 +5155,11 @@ Sema::getMoreSpecializedPartialSpecialization(
     llvm::SmallVector<const Expr *, 3> AC1, AC2;
     PS1->getAssociatedConstraints(AC1);
     PS2->getAssociatedConstraints(AC2);
-    bool MoreConstrained1 = IsMoreConstrained(PS1, AC1, PS2, AC2);
-    bool MoreConstrained2 = IsMoreConstrained(PS2, AC2, PS1, AC1);
-    if (MoreConstrained1 == MoreConstrained2)
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(PS1, AC1, PS2, AC2);
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(PS2, AC2, PS1, AC1);
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2)
       return nullptr;
-    return MoreConstrained1 ? PS1 : PS2;
+    return AtLeastAsConstrained1 ? PS1 : PS2;
   }
 
   return Better1 ? PS1 : PS2;
@@ -5173,13 +5174,14 @@ bool Sema::isMoreSpecializedThanPrimary(
     llvm::SmallVector<const Expr *, 3> PrimaryAC, SpecAC;
     Primary->getAssociatedConstraints(PrimaryAC);
     Spec->getAssociatedConstraints(SpecAC);
-    bool MoreConstrainedPrimary = IsMoreConstrained(Primary, PrimaryAC, Spec,
-                                                    SpecAC);
-    bool MoreConstrainedSpec = IsMoreConstrained(Spec, SpecAC, Primary,
-                                                 PrimaryAC);
-    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+    bool AtLeastAsConstrainedPrimary = IsAtLeastAsConstrained(Primary,
+                                                              PrimaryAC, Spec,
+                                                              SpecAC);
+    bool AtLeastAsConstrainedSpec = IsAtLeastAsConstrained(Spec, SpecAC,
+                                                           Primary, PrimaryAC);
+    if (AtLeastAsConstrainedPrimary == AtLeastAsConstrainedSpec)
       return false;
-    return MoreConstrainedSpec;
+    return AtLeastAsConstrainedSpec;
   };
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
     return JudgeByConstraints();
@@ -5214,12 +5216,12 @@ Sema::getMoreSpecializedPartialSpecialization(
     llvm::SmallVector<const Expr *, 3> AC1, AC2;
     PS1->getAssociatedConstraints(AC1);
     PS2->getAssociatedConstraints(AC2);
-    bool MoreConstrained1 = IsMoreConstrained(PS1, AC1, PS2, AC2);
-    bool MoreConstrained2 = IsMoreConstrained(PS2, AC2, PS1, AC1);
-    if (MoreConstrained1 == MoreConstrained2) {
+    bool AtLeastAsConstrained1 = IsAtLeastAsConstrained(PS1, AC1, PS2, AC2);
+    bool AtLeastAsConstrained2 = IsAtLeastAsConstrained(PS2, AC2, PS1, AC1);
+    if (AtLeastAsConstrained1 == AtLeastAsConstrained2) {
       return nullptr;
     }
-    return MoreConstrained1 ? PS1 : PS2;
+    return AtLeastAsConstrained1 ? PS1 : PS2;
   }
 
   return Better1 ? PS1 : PS2;
@@ -5245,13 +5247,14 @@ bool Sema::isMoreSpecializedThanPrimary(
     llvm::SmallVector<const Expr *, 3> PrimaryAC, SpecAC;
     Primary->getAssociatedConstraints(PrimaryAC);
     Spec->getAssociatedConstraints(SpecAC);
-    bool MoreConstrainedPrimary = IsMoreConstrained(Primary, PrimaryAC, Spec,
-                                                    SpecAC);
-    bool MoreConstrainedSpec = IsMoreConstrained(Spec, SpecAC, Primary,
-                                                 PrimaryAC);
-    if (MoreConstrainedPrimary == MoreConstrainedSpec)
+    bool AtLeastAsConstrainedPrimary = IsAtLeastAsConstrained(Primary,
+                                                              PrimaryAC, Spec,
+                                                              SpecAC);
+    bool AtLeastAsConstrainedSpec = IsAtLeastAsConstrained(Spec, SpecAC,
+                                                           Primary, PrimaryAC);
+    if (AtLeastAsConstrainedPrimary == AtLeastAsConstrainedSpec)
       return false;
-    return MoreConstrainedSpec;
+    return AtLeastAsConstrainedSpec;
   };
 
   if (!isAtLeastAsSpecializedAs(*this, PartialT, PrimaryT, Primary, Info))
@@ -5294,7 +5297,8 @@ bool Sema::isTemplateTemplateParameterAtLeastAsSpecializedAs(
     SFINAETrap Trap(*this);
 
     Context.getInjectedTemplateArgs(P, PArgs);
-    TemplateArgumentListInfo PArgList(P->getLAngleLoc(), P->getRAngleLoc());
+    TemplateArgumentListInfo PArgList(P->getLAngleLoc(),
+                                      P->getRAngleLoc());
     for (unsigned I = 0, N = P->size(); I != N; ++I) {
       // Unwrap packs that getInjectedTemplateArgs wrapped around pack
       // expansions, to form an "as written" argument list.

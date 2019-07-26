@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_AST_DECLTEMPLATE_H
 #define LLVM_CLANG_AST_DECLTEMPLATE_H
 
+#include "clang/AST/ASTConcept.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
@@ -51,6 +52,7 @@ class NonTypeTemplateParmDecl;
 class TemplateDecl;
 class TemplateTemplateParmDecl;
 class TemplateTypeParmDecl;
+class ConceptDecl;
 class UnresolvedSetImpl;
 class VarTemplateDecl;
 class VarTemplatePartialSpecializationDecl;
@@ -81,20 +83,24 @@ class TemplateParameterList final
   /// pack.
   unsigned ContainsUnexpandedParameterPack : 1;
 
-  /// Whether this template parameter list has an associated requires-clause
+  /// Whether this template parameter list has a requires clause.
   unsigned HasRequiresClause : 1;
 
+  /// Whether any of the template parameters has constrained-parameter
+  /// constraint-expression.
+  unsigned HasConstrainedParameters : 1;
+
 protected:
-  TemplateParameterList(SourceLocation TemplateLoc, SourceLocation LAngleLoc,
-                        ArrayRef<NamedDecl *> Params, SourceLocation RAngleLoc,
-                        Expr *RequiresClause);
+  TemplateParameterList(const ASTContext& C, SourceLocation TemplateLoc,
+                        SourceLocation LAngleLoc, ArrayRef<NamedDecl *> Params,
+                        SourceLocation RAngleLoc, Expr *RequiresClause);
 
   size_t numTrailingObjects(OverloadToken<NamedDecl *>) const {
     return NumParams;
   }
 
   size_t numTrailingObjects(OverloadToken<Expr *>) const {
-    return HasRequiresClause;
+    return HasRequiresClause ? 1 : 0;
   }
 
 public:
@@ -158,14 +164,22 @@ public:
     return ContainsUnexpandedParameterPack;
   }
 
+  /// Determine whether this template parameter list contains a parameter pack.
+  bool hasParameterPack() const {
+    for (const NamedDecl *P : asArray())
+      if (P->isParameterPack())
+        return true;
+    return false;
+  }
+
   /// The constraint-expression of the associated requires-clause.
   Expr *getRequiresClause() {
-    return HasRequiresClause ? *getTrailingObjects<Expr *>() : nullptr;
+    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
   }
 
   /// The constraint-expression of the associated requires-clause.
   const Expr *getRequiresClause() const {
-    return HasRequiresClause ? *getTrailingObjects<Expr *>() : nullptr;
+    return HasRequiresClause ? getTrailingObjects<Expr *>()[0] : nullptr;
   }
 
   /// \brief All associated constraints derived from this template parameter
@@ -208,15 +222,16 @@ class FixedSizeTemplateParameterListStorage
       >::type storage;
 
 public:
-  FixedSizeTemplateParameterListStorage(SourceLocation TemplateLoc,
+  FixedSizeTemplateParameterListStorage(const ASTContext &C,
+                                        SourceLocation TemplateLoc,
                                         SourceLocation LAngleLoc,
                                         ArrayRef<NamedDecl *> Params,
                                         SourceLocation RAngleLoc,
                                         Expr *RequiresClause)
       : FixedSizeStorageOwner(
             (assert(N == Params.size()),
-             assert(HasRequiresClause == static_cast<bool>(RequiresClause)),
-             new (static_cast<void *>(&storage)) TemplateParameterList(
+             assert(HasRequiresClause == (RequiresClause != nullptr)),
+             new (static_cast<void *>(&storage)) TemplateParameterList(C,
                  TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause))) {}
 };
 
@@ -1148,15 +1163,25 @@ public:
 /// \code
 /// template<typename T> class vector;
 /// \endcode
-class TemplateTypeParmDecl : public TypeDecl {
+class TemplateTypeParmDecl final : public TypeDecl,
+    private llvm::TrailingObjects<TemplateTypeParmDecl, TypeConstraint> {
   /// Sema creates these on the stack during auto type deduction.
   friend class Sema;
+  friend TrailingObjects;
 
   /// Whether this template type parameter was declaration with
   /// the 'typename' keyword.
   ///
   /// If false, it was declared with the 'class' keyword.
   bool Typename : 1;
+
+  /// Whether this template type parameter has a type-constraint construct.
+  bool HasTypeConstraint : 1;
+
+  /// Whether the type constraint has been initialized. This can be false if the
+  /// constraint was not initialized yet or if there was an error forming the
+  /// type constriant.
+  bool TypeConstraintInitialized : 1;
 
   /// The default template argument, if any.
   using DefArgStorage =
@@ -1165,8 +1190,9 @@ class TemplateTypeParmDecl : public TypeDecl {
 
   TemplateTypeParmDecl(DeclContext *DC, SourceLocation KeyLoc,
                        SourceLocation IdLoc, IdentifierInfo *Id,
-                       bool Typename)
-      : TypeDecl(TemplateTypeParm, DC, IdLoc, Id, KeyLoc), Typename(Typename) {}
+                       bool Typename, bool HasTypeConstraint)
+      : TypeDecl(TemplateTypeParm, DC, IdLoc, Id, KeyLoc), Typename(Typename),
+      HasTypeConstraint(HasTypeConstraint), TypeConstraintInitialized(false) {}
 
 public:
   static TemplateTypeParmDecl *Create(const ASTContext &C, DeclContext *DC,
@@ -1174,15 +1200,22 @@ public:
                                       SourceLocation NameLoc,
                                       unsigned D, unsigned P,
                                       IdentifierInfo *Id, bool Typename,
-                                      bool ParameterPack);
+                                      bool ParameterPack,
+                                      bool HasTypeConstraint);
   static TemplateTypeParmDecl *CreateDeserialized(const ASTContext &C,
                                                   unsigned ID);
+  static TemplateTypeParmDecl *CreateDeserialized(const ASTContext &C,
+                                                  unsigned ID,
+                                                  bool HasTypeConstraint);
 
   /// Whether this template type parameter was declared with
   /// the 'typename' keyword.
   ///
-  /// If not, it was declared with the 'class' keyword.
-  bool wasDeclaredWithTypename() const { return Typename; }
+  /// If not, it was either declared with the 'class' keyword or with a
+  /// type-constraint (see hasTypeConstraint()).
+  bool wasDeclaredWithTypename() const {
+    return Typename && !HasTypeConstraint;
+  }
 
   const DefArgStorage &getDefaultArgStorage() const { return DefaultArgument; }
 
@@ -1238,6 +1271,34 @@ public:
 
   /// Returns whether this is a parameter pack.
   bool isParameterPack() const;
+
+  /// Returns the type constraint associated with this template parameter (if
+  /// any).
+  const TypeConstraint *getTypeConstraint() const {
+    return TypeConstraintInitialized ? getTrailingObjects<TypeConstraint>() :
+         nullptr;
+  }
+
+  void setTypeConstraint(NestedNameSpecifierLoc NNS,
+                         DeclarationNameInfo NameInfo, NamedDecl *FoundDecl,
+                         ConceptDecl *CD,
+                         const ASTTemplateArgumentListInfo *ArgsAsWritten,
+                         Expr *ImmediatelyDeclaredConstraint);
+
+  /// Determine whether this template parameter has a type-constraint.
+  bool hasTypeConstraint() const {
+    return HasTypeConstraint;
+  }
+
+  /// \brief Get the associated-constraints of this template parameter.
+  /// This will either be the immediately-introduced constraint or empty.
+  ///
+  /// Use this instead of getConstraintExpression for concepts APIs that
+  /// accept an ArrayRef of constraint expressions.
+  void getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const {
+    if (HasTypeConstraint)
+      AC.push_back(getTypeConstraint()->getImmediatelyDeclaredConstraint());
+  }
 
   SourceRange getSourceRange() const override LLVM_READONLY;
 
@@ -1422,6 +1483,33 @@ public:
     auto TypesAndInfos =
         getTrailingObjects<std::pair<QualType, TypeSourceInfo *>>();
     return TypesAndInfos[I].second;
+  }
+
+  /// Return the type-constraint in the placeholder type of this non-type
+  /// template parameter (if any).
+  TypeConstraint *getPlaceholderTypeConstraint() const {
+    // TODO: Concepts: Implement once we have actual placeholders with type
+    //                 constraints.
+    return nullptr;
+  }
+
+  /// Determine whether this non-type template parameter's type has a
+  /// placeholder with a type-constraint.
+  bool hasPlaceholderTypeConstraint() const {
+    // TODO: Concepts: Implement once we have actual placeholders with type
+    //                 constraints.
+    return false;
+  }
+
+  /// \brief Get the associated-constraints of this template parameter.
+  /// This will either be a vector of size 1 containing the immediately-declared
+  /// constraint introduced by the placeholder type, or an empty vector.
+  ///
+  /// Use this instead of getPlaceholderImmediatelyDeclaredConstraint for
+  /// concepts APIs that accept an ArrayRef of constraint expressions.
+  void getAssociatedConstraints(llvm::SmallVectorImpl<const Expr *> &AC) const {
+    if (TypeConstraint *TC = getPlaceholderTypeConstraint())
+      AC.push_back(TC->getImmediatelyDeclaredConstraint());
   }
 
   // Implement isa/cast/dyncast/etc.
@@ -3106,6 +3194,10 @@ public:
   SourceRange getSourceRange() const override LLVM_READONLY {
     return SourceRange(getTemplateParameters()->getTemplateLoc(),
                        ConstraintExpr->getEndLoc());
+  }
+
+  bool isTypeConcept() const {
+    return isa<TemplateTypeParmDecl>(getTemplateParameters()->getParam(0));
   }
 
   // Implement isa/cast/dyncast/etc.

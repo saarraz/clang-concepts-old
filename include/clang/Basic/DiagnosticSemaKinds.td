@@ -2502,6 +2502,17 @@ def note_ambiguous_atomic_constraints_second : Note<"and here">;
 
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
+def err_template_different_type_constraint : Error<
+  "type constraint differs in template redeclaration">;
+def err_template_template_parameter_not_at_least_as_constrained : Error<
+  "template template argument %0 must not be more constrained than template "
+  "template parameter %1">;
+
+def err_type_constraint_non_type_concept : Error<
+  "concept named in type constraint must be a type concept">;
+def err_type_constraint_missing_arguments : Error<
+  "%0 requires more than 1 template argument; provide the remaining arguments "
+  "explicitly to use it here">;
 
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<

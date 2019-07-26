@@ -130,7 +130,8 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
                                       ParsedType ObjectTypePtr,
                                       bool EnteringContext,
                                       TemplateTy &TemplateResult,
-                                      bool &MemberOfUnknownSpecialization) {
+                                      bool &MemberOfUnknownSpecialization,
+                                      NamedDecl **FoundDecl) {
   assert(getLangOpts().CPlusPlus && "No template names in C!");
 
   DeclarationName TName;
@@ -222,6 +223,8 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
     // We'll do this lookup again later.
     R.suppressDiagnostics();
   } else {
+    if (FoundDecl)
+      *FoundDecl = R.getFoundDecl();
     if (!D) {
       D = getAsTemplateNameDecl(*R.begin());
       assert(D && "unambiguous result is not a template name");
@@ -957,13 +960,14 @@ ParsedTemplateArgument Sema::ActOnTemplateTypeArgument(TypeResult ParsedType) {
 /// If the type parameter has a default argument, it will be added
 /// later via ActOnTypeParameterDefault.
 NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
-                               SourceLocation EllipsisLoc,
-                               SourceLocation KeyLoc,
-                               IdentifierInfo *ParamName,
-                               SourceLocation ParamNameLoc,
-                               unsigned Depth, unsigned Position,
-                               SourceLocation EqualLoc,
-                               ParsedType DefaultArg) {
+                                    SourceLocation EllipsisLoc,
+                                    SourceLocation KeyLoc,
+                                    IdentifierInfo *ParamName,
+                                    SourceLocation ParamNameLoc,
+                                    unsigned Depth, unsigned Position,
+                                    SourceLocation EqualLoc,
+                                    ParsedType DefaultArg,
+                                    bool HasTypeConstraint) {
   assert(S->isTemplateParamScope() &&
          "Template type parameter not in template parameter scope!");
 
@@ -975,7 +979,8 @@ NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
   TemplateTypeParmDecl *Param
     = TemplateTypeParmDecl::Create(Context, Context.getTranslationUnitDecl(),
                                    KeyLoc, Loc, Depth, Position, ParamName,
-                                   Typename, IsParameterPack);
+                                   Typename, IsParameterPack,
+                                   HasTypeConstraint);
   Param->setAccess(AS_public);
 
   if (ParamName) {
@@ -1016,6 +1021,129 @@ NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
   }
 
   return Param;
+}
+
+/// Convert the parser's template argument list representation into our form.
+static TemplateArgumentListInfo
+makeTemplateArgumentListInfo(Sema &S, TemplateIdAnnotation &TemplateId) {
+  TemplateArgumentListInfo TemplateArgs(TemplateId.LAngleLoc,
+                                        TemplateId.RAngleLoc);
+  ASTTemplateArgsPtr TemplateArgsPtr(TemplateId.getTemplateArgs(),
+                                     TemplateId.NumArgs);
+  S.translateTemplateArguments(TemplateArgsPtr, TemplateArgs);
+  return TemplateArgs;
+}
+
+bool Sema::ActOnTypeConstraint(TemplateIdAnnotation *TypeConstr,
+                               TemplateTypeParmDecl *ConstrainedParameter,
+                               SourceLocation EllipsisLoc) {
+  ConceptDecl *CD =
+      cast<ConceptDecl>(TypeConstr->Template.get().getAsTemplateDecl());
+
+  // C++2a [temp]p6:
+  //     [...] The concept designated by a type-constraint shall be a type
+  //     concept ([temp.concept]).
+  if (!CD->isTypeConcept()) {
+    Diag(TypeConstr->TemplateNameLoc,
+         diag::err_type_constraint_non_type_concept);
+    return true;
+  }
+
+  bool WereArgsSpecified = TypeConstr->LAngleLoc.isValid();
+
+  if (!WereArgsSpecified &&
+      CD->getTemplateParameters()->getMinRequiredArguments() > 1) {
+    Diag(TypeConstr->TemplateNameLoc,
+         diag::err_type_constraint_missing_arguments) << CD <<
+         FixItHint::CreateInsertion(ConstrainedParameter->getLocation(),
+                                    "<...>");
+    return true;
+  }
+
+  TemplateArgumentListInfo TemplateArgs;
+  if (TypeConstr->LAngleLoc.isValid()) {
+    TemplateArgs =
+        makeTemplateArgumentListInfo(*this, *TypeConstr);
+  }
+  return AttachTypeConstraint(
+      TypeConstr->SS.isSet() ? TypeConstr->SS.getWithLocInContext(Context) :
+      NestedNameSpecifierLoc(),
+      DeclarationNameInfo(DeclarationName(TypeConstr->Name),
+                          TypeConstr->TemplateNameLoc), CD,
+      TypeConstr->LAngleLoc.isValid() ? &TemplateArgs : nullptr,
+      ConstrainedParameter, EllipsisLoc);
+}
+
+/// Attach a type-constraint to a template parameter.
+/// \returns true if an error occured. This can happen if the
+/// immediately-declared constraint could not be formed (e.g. incorrect number
+/// of arguments for the named concept).
+bool Sema::AttachTypeConstraint(NestedNameSpecifierLoc NS,
+                                DeclarationNameInfo NameInfo,
+                                ConceptDecl *NamedConcept,
+                                const TemplateArgumentListInfo *TemplateArgs,
+                                TemplateTypeParmDecl *ConstrainedParameter,
+                                SourceLocation EllipsisLoc) {
+  // C++2a [temp]p6:
+  //     [...] If Q is of the form C<A1, ⋯, An>, then let E′ be C<T, A1, ⋯, An>.
+  //     Otherwise, let E′ be C<T>. [...]
+  const ASTTemplateArgumentListInfo *ArgsAsWritten =
+    TemplateArgs ? ASTTemplateArgumentListInfo::Create(Context,
+                                                       *TemplateArgs) : nullptr;
+
+  QualType ParamAsArgument(ConstrainedParameter->getTypeForDecl(), 0);
+  TemplateArgumentListInfo ConstraintArgs;
+  ConstraintArgs.addArgument(
+    TemplateArgumentLoc(
+        TemplateArgument(ParamAsArgument),
+        TemplateArgumentLocInfo(
+            Context.getTrivialTypeSourceInfo(ParamAsArgument,
+                ConstrainedParameter->getLocation()))));
+  if (TemplateArgs) {
+    ConstraintArgs.setRAngleLoc(TemplateArgs->getRAngleLoc());
+    ConstraintArgs.setLAngleLoc(TemplateArgs->getLAngleLoc());
+    for (const TemplateArgumentLoc &ArgLoc : TemplateArgs->arguments())
+      ConstraintArgs.addArgument(ArgLoc);
+  }
+
+  // C++2a [temp]p6:
+  //     [...] This constraint-expression E is called the immediately-declared
+  //     constraint of T. [...]
+  CXXScopeSpec SS;
+  SS.Adopt(NS);
+  ExprResult ImmediatelyDeclaredConstraint = CheckConceptTemplateId(SS,
+      /*TemplateKWLoc=*/SourceLocation(), NameInfo, /*FoundDecl=*/NamedConcept,
+      NamedConcept, &ConstraintArgs);
+  if (ImmediatelyDeclaredConstraint.isInvalid() ||
+      !ImmediatelyDeclaredConstraint.isUsable())
+    return true;
+
+  if (ConstrainedParameter->isParameterPack()) {
+    // C++2a [temp]p6:
+    //     [...] If T is not a pack, then E is E′, otherwise E is (E′ && ...).
+    //
+    // We have the following case:
+    //
+    // template<typename T> concept C1 = true;
+    // template<C1... T> struct s1;
+    //
+    // The constraint: (C1<T> && ...)
+    ImmediatelyDeclaredConstraint =
+      BuildCXXFoldExpr(/*LParenLoc=*/SourceLocation(),
+                       ImmediatelyDeclaredConstraint.get(), BO_LAnd,
+                       EllipsisLoc, /*RHS=*/nullptr,
+                       /*RParenLoc=*/SourceLocation(),
+                       /*NumExpansions=*/None).get();
+    if (ImmediatelyDeclaredConstraint.isInvalid() ||
+        !ImmediatelyDeclaredConstraint.isUsable())
+      return true;
+  }
+
+  ConstrainedParameter->setTypeConstraint(NS, NameInfo,
+                                          /*FoundDecl=*/NamedConcept,
+                                          NamedConcept, ArgsAsWritten,
+                                          ImmediatelyDeclaredConstraint.get());
+  return false;
 }
 
 /// Check that the type of a non-type template parameter is
@@ -1835,7 +1963,24 @@ private:
           SemaRef.Context, DC, TTP->getBeginLoc(), TTP->getLocation(),
           /*Depth*/ 0, Depth1IndexAdjustment + TTP->getIndex(),
           TTP->getIdentifier(), TTP->wasDeclaredWithTypename(),
-          TTP->isParameterPack());
+          TTP->isParameterPack(), TTP->hasTypeConstraint());
+      if (const auto *TC = TTP->getTypeConstraint()) {
+        TemplateArgumentListInfo TransformedArgs;
+        const auto *ArgsAsWritten = TC->getTemplateArgsAsWritten();
+        if (SemaRef.Subst(ArgsAsWritten->getTemplateArgs(),
+                          ArgsAsWritten->NumTemplateArgs, TransformedArgs,
+                          Args)) {
+          ExprResult InstantiatedConstraint =
+              SemaRef.SubstExpr(TC->getImmediatelyDeclaredConstraint(), Args);
+          if (InstantiatedConstraint.isUsable())
+            NewTTP->setTypeConstraint(TC->getNestedNameSpecifierLoc(),
+                TC->getConceptNameInfo(), TC->getFoundDecl(),
+                TC->getNamedConcept(),
+                ASTTemplateArgumentListInfo::Create(SemaRef.Context,
+                                                    TransformedArgs),
+                InstantiatedConstraint.get());
+        }
+      }
       if (TTP->hasDefaultArgument()) {
         TypeSourceInfo *InstantiatedDefaultArg =
             SemaRef.SubstType(TTP->getDefaultArgumentInfo(), Args,
@@ -3680,17 +3825,6 @@ static bool isSameAsPrimaryTemplate(TemplateParameterList *Params,
   return true;
 }
 
-/// Convert the parser's template argument list representation into our form.
-static TemplateArgumentListInfo
-makeTemplateArgumentListInfo(Sema &S, TemplateIdAnnotation &TemplateId) {
-  TemplateArgumentListInfo TemplateArgs(TemplateId.LAngleLoc,
-                                        TemplateId.RAngleLoc);
-  ASTTemplateArgsPtr TemplateArgsPtr(TemplateId.getTemplateArgs(),
-                                     TemplateId.NumArgs);
-  S.translateTemplateArguments(TemplateArgsPtr, TemplateArgs);
-  return TemplateArgs;
-}
-
 template<typename PartialSpecDecl>
 static void checkMoreSpecializedThanPrimary(Sema &S, PartialSpecDecl *Partial) {
   if (Partial->getDeclContext()->isDependentContext())
@@ -4218,14 +4352,14 @@ void Sema::diagnoseMissingTemplateArguments(TemplateName Name,
 ExprResult
 Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
                              SourceLocation TemplateKWLoc,
-                             SourceLocation ConceptNameLoc,
+                             const DeclarationNameInfo &ConceptNameInfo,
                              NamedDecl *FoundDecl,
                              ConceptDecl *NamedConcept,
                              const TemplateArgumentListInfo *TemplateArgs) {
   assert(NamedConcept && "A concept template id without a template?");
 
   llvm::SmallVector<TemplateArgument, 4> Converted;
-  if (CheckTemplateArgumentList(NamedConcept, ConceptNameLoc,
+  if (CheckTemplateArgumentList(NamedConcept, ConceptNameInfo.getLoc(),
                            const_cast<TemplateArgumentListInfo&>(*TemplateArgs),
                                 /*PartialTemplateArgs=*/false, Converted,
                                 /*UpdateArgsWithConversion=*/false))
@@ -4244,14 +4378,14 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
                                     {NamedConcept->getConstraintExpr()},
                                     Converted,
                                     SourceRange(SS.isSet() ? SS.getBeginLoc() :
-                                                             ConceptNameLoc,
+                                                       ConceptNameInfo.getLoc(),
                                                 TemplateArgs->getRAngleLoc()),
                                     Satisfaction))
       return ExprError();
 
   return ConceptSpecializationExpr::Create(Context,
       SS.isSet() ? SS.getWithLocInContext(Context) : NestedNameSpecifierLoc{},
-      TemplateKWLoc, ConceptNameLoc, FoundDecl, NamedConcept,
+      TemplateKWLoc, ConceptNameInfo, FoundDecl, NamedConcept,
       ASTTemplateArgumentListInfo::Create(Context, *TemplateArgs), Converted,
       Satisfaction);
 }
@@ -4297,8 +4431,7 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
   }
 
   if (R.getAsSingle<ConceptDecl>()) {
-    return CheckConceptTemplateId(SS, TemplateKWLoc,
-                                  R.getLookupNameInfo().getBeginLoc(),
+    return CheckConceptTemplateId(SS, TemplateKWLoc, R.getLookupNameInfo(),
                                   R.getFoundDecl(),
                                   R.getAsSingle<ConceptDecl>(), TemplateArgs);
   }
@@ -5102,7 +5235,7 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
 
   case TemplateArgument::Template:
   case TemplateArgument::TemplateExpansion:
-    if (CheckTemplateTemplateArgument(Params, Arg))
+    if (CheckTemplateTemplateArgument(TempParm, Params, Arg))
       return true;
 
     Converted.push_back(Arg.getArgument());
@@ -6871,7 +7004,8 @@ static void DiagnoseTemplateParameterListArityMismatch(
 ///
 /// This routine implements the semantics of C++ [temp.arg.template].
 /// It returns true if an error occurred, and false otherwise.
-bool Sema::CheckTemplateTemplateArgument(TemplateParameterList *Params,
+bool Sema::CheckTemplateTemplateArgument(TemplateTemplateParmDecl *Param,
+                                         TemplateParameterList *Params,
                                          TemplateArgumentLoc &Arg) {
   TemplateName Name = Arg.getArgument().getAsTemplateOrTemplatePattern();
   TemplateDecl *Template = Name.getAsTemplateDecl();
@@ -6910,19 +7044,43 @@ bool Sema::CheckTemplateTemplateArgument(TemplateParameterList *Params,
   // C++1z [temp.arg.template]p3: (DR 150)
   //   A template-argument matches a template template-parameter P when P
   //   is at least as specialized as the template-argument A.
-  if (getLangOpts().RelaxedTemplateTemplateArgs) {
+  if (getLangOpts().RelaxedTemplateTemplateArgs || getLangOpts().ConceptsTS) {
     // Quick check for the common case:
     //   If P contains a parameter pack, then A [...] matches P if each of A's
     //   template parameters matches the corresponding template parameter in
     //   the template-parameter-list of P.
     if (TemplateParameterListsAreEqual(
             Template->getTemplateParameters(), Params, false,
-            TPL_TemplateTemplateArgumentMatch, Arg.getLocation()))
+            TPL_TemplateTemplateArgumentMatch, Arg.getLocation()) &&
+        // If the argument has no associated constraints, then the parameter is
+        // definitely at least as specialized as the argument.
+        // Otherwise - we need a more thorough check.
+        !Template->hasAssociatedConstraints())
       return false;
 
     if (isTemplateTemplateParameterAtLeastAsSpecializedAs(Params, Template,
-                                                          Arg.getLocation()))
+                                                          Arg.getLocation())) {
+      // C++2a[temp.func.order]p2
+      //   [...] If both deductions succeed, the partial ordering selects the
+      //   more constrained template as described by the rules in
+      //   [temp.constr.order].
+      SmallVector<const Expr *, 3> ParamsAC, TemplateAC;
+      Params->getAssociatedConstraints(ParamsAC);
+      Template->getAssociatedConstraints(TemplateAC);
+      if (!IsAtLeastAsConstrained(Param, ParamsAC, Template, TemplateAC,
+                                  /*NoCache=*/true)) {
+        Diag(Arg.getLocation(),
+             diag::err_template_template_parameter_not_at_least_as_constrained)
+            << Template << Param << Arg.getSourceRange();
+        Diag(Param->getLocation(), diag::note_entity_declared_at) << Param;
+        Diag(Template->getLocation(), diag::note_entity_declared_at)
+            << Template;
+        MaybeEmitAmbiguousAtomicConstraintsDiagnostic(Param, ParamsAC, Template,
+                                                      TemplateAC);
+        return true;
+      }
       return false;
+    }
     // FIXME: Produce better diagnostics for deduction failures.
   }
 
@@ -7121,7 +7279,6 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                        bool Complain,
                                      Sema::TemplateParameterListEqualKind Kind,
                                        SourceLocation TemplateArgLoc) {
-  // TODO: Concepts: Check constrained-parameter constraints here.
   // Check the actual kind (type, non-type, template).
   if (Old->getKind() != New->getKind()) {
     if (Complain) {
@@ -7175,50 +7332,73 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
     // template parameter and one of the non-type template parameter types
     // is dependent, then we must wait until template instantiation time
     // to actually compare the arguments.
-    if (Kind == Sema::TPL_TemplateTemplateArgumentMatch &&
-        (OldNTTP->getType()->isDependentType() ||
-         NewNTTP->getType()->isDependentType()))
-      return true;
-
-    if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {
-      if (Complain) {
-        unsigned NextDiag = diag::err_template_nontype_parm_different_type;
-        if (TemplateArgLoc.isValid()) {
-          S.Diag(TemplateArgLoc,
-                 diag::err_template_arg_template_params_mismatch);
-          NextDiag = diag::note_template_nontype_parm_different_type;
+    if (Kind != Sema::TPL_TemplateTemplateArgumentMatch ||
+        (!OldNTTP->getType()->isDependentType() &&
+         !NewNTTP->getType()->isDependentType()))
+      if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {
+        if (Complain) {
+          unsigned NextDiag = diag::err_template_nontype_parm_different_type;
+          if (TemplateArgLoc.isValid()) {
+            S.Diag(TemplateArgLoc,
+                   diag::err_template_arg_template_params_mismatch);
+            NextDiag = diag::note_template_nontype_parm_different_type;
+          }
+          S.Diag(NewNTTP->getLocation(), NextDiag)
+            << NewNTTP->getType()
+            << (Kind != Sema::TPL_TemplateMatch);
+          S.Diag(OldNTTP->getLocation(),
+                 diag::note_template_nontype_parm_prev_declaration)
+            << OldNTTP->getType();
         }
-        S.Diag(NewNTTP->getLocation(), NextDiag)
-          << NewNTTP->getType()
-          << (Kind != Sema::TPL_TemplateMatch);
-        S.Diag(OldNTTP->getLocation(),
-               diag::note_template_nontype_parm_prev_declaration)
-          << OldNTTP->getType();
+
+        return false;
       }
-
-      return false;
-    }
-
-    return true;
   }
-
   // For template template parameters, check the template parameter types.
   // The template parameter lists of template template
   // parameters must agree.
-  if (TemplateTemplateParmDecl *OldTTP
+  else if (TemplateTemplateParmDecl *OldTTP
                                     = dyn_cast<TemplateTemplateParmDecl>(Old)) {
     TemplateTemplateParmDecl *NewTTP = cast<TemplateTemplateParmDecl>(New);
-    return S.TemplateParameterListsAreEqual(NewTTP->getTemplateParameters(),
-                                            OldTTP->getTemplateParameters(),
-                                            Complain,
+    if (!S.TemplateParameterListsAreEqual(NewTTP->getTemplateParameters(),
+                                          OldTTP->getTemplateParameters(),
+                                          Complain,
                                         (Kind == Sema::TPL_TemplateMatch
                                            ? Sema::TPL_TemplateTemplateParmMatch
                                            : Kind),
-                                            TemplateArgLoc);
-  }
+                                          TemplateArgLoc))
+      return false;
+  } else if (Kind != Sema::TPL_TemplateTemplateArgumentMatch) {
+    const Expr *NewC = nullptr, *OldC = nullptr;
+    if (const auto *TC = cast<TemplateTypeParmDecl>(New)->getTypeConstraint())
+      NewC = TC->getImmediatelyDeclaredConstraint();
+    if (const auto *TC = cast<TemplateTypeParmDecl>(Old)->getTypeConstraint())
+      OldC = TC->getImmediatelyDeclaredConstraint();
 
-  // TODO: Concepts: Match immediately-introduced-constraint for type
-  // constraints
+    auto Diagnose = [&] {
+      S.Diag(NewC ? NewC->getBeginLoc() : New->getBeginLoc(),
+           diag::err_template_different_type_constraint);
+      S.Diag(OldC ? OldC->getBeginLoc() : Old->getBeginLoc(),
+           diag::note_template_prev_declaration) << /*declaration*/0;
+    };
+
+    if (!NewC != !OldC) {
+      if (Complain)
+        Diagnose();
+      return false;
+    }
+
+    if (NewC) {
+      llvm::FoldingSetNodeID OldCID, NewCID;
+      OldC->Profile(OldCID, S.Context, /*Canonical=*/true);
+      NewC->Profile(NewCID, S.Context, /*Canonical=*/true);
+      if (OldCID != NewCID) {
+        if (Complain)
+          Diagnose();
+        return false;
+      }
+    }
+  }
 
   return true;
 }
@@ -7243,15 +7423,6 @@ void DiagnoseTemplateParameterListArityMismatch(Sema &S,
   S.Diag(Old->getTemplateLoc(), diag::note_template_prev_declaration)
     << (Kind != Sema::TPL_TemplateMatch)
     << SourceRange(Old->getTemplateLoc(), Old->getRAngleLoc());
-}
-
-static void
-DiagnoseTemplateParameterListRequiresClauseMismatch(Sema &S,
-                                                    TemplateParameterList *New,
-                                                    TemplateParameterList *Old){
-  S.Diag(New->getTemplateLoc(), diag::err_template_different_requires_clause);
-  S.Diag(Old->getTemplateLoc(),  diag::note_template_prev_declaration)
-      << /*declaration*/0;
 }
 
 /// Determine whether the given template parameter lists are
@@ -7346,9 +7517,17 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
   if (Kind != TPL_TemplateTemplateArgumentMatch) {
     const Expr *NewRC = New->getRequiresClause();
     const Expr *OldRC = Old->getRequiresClause();
+
+    auto Diagnose = [&] {
+      Diag(NewRC ? NewRC->getBeginLoc() : New->getTemplateLoc(),
+           diag::err_template_different_requires_clause);
+      Diag(OldRC ? OldRC->getBeginLoc() : Old->getTemplateLoc(),
+           diag::note_template_prev_declaration) << /*declaration*/0;
+    };
+
     if (!NewRC != !OldRC) {
       if (Complain)
-        DiagnoseTemplateParameterListRequiresClauseMismatch(*this, New, Old);
+        Diagnose();
       return false;
     }
 
@@ -7358,7 +7537,7 @@ Sema::TemplateParameterListsAreEqual(TemplateParameterList *New,
       NewRC->Profile(NewRCID, Context, /*Canonical=*/true);
       if (OldRCID != NewRCID) {
         if (Complain)
-          DiagnoseTemplateParameterListRequiresClauseMismatch(*this, New, Old);
+          Diagnose();
         return false;
       }
     }
@@ -10520,9 +10699,3 @@ void Sema::checkPartialSpecializationVisibility(SourceLocation Loc,
                           MissingImportKind::PartialSpecialization,
                           /*Recover*/true);
 }
-
-    // p1
-    //   template-parameter:
-    //     ...
-    //     parameter-declaration
-    // p2
