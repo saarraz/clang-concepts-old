@@ -3207,6 +3207,8 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       // C++ doesn't have implicit int.  Diagnose it as a typo w.r.t. to the
       // typename.
       if (!TypeRep) {
+        if (TryAnnotateTypeConstraint(SS))
+          continue;
         // Eat the scope spec so the identifier is current.
         ConsumeAnnotationToken();
         ParsedAttributesWithRange Attrs(AttrFactory);
@@ -3356,6 +3358,9 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       // If this is not a typedef name, don't parse it as part of the declspec,
       // it must be an implicit int or an error.
       if (!TypeRep) {
+        CXXScopeSpec SS;
+        if (TryAnnotateTypeConstraint(SS))
+          continue;
         ParsedAttributesWithRange Attrs(AttrFactory);
         if (ParseImplicitInt(DS, nullptr, TemplateInfo, AS, DSContext, Attrs)) {
           if (!Attrs.empty()) {
@@ -3405,9 +3410,52 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       continue;
     }
 
-      // type-name
+      // type-name or placeholder-specifier
     case tok::annot_template_id: {
       TemplateIdAnnotation *TemplateId = takeTemplateIdAnnotation(Tok);
+      if (TemplateId->Kind == TNK_Concept_template) {
+        if (NextToken().is(tok::identifier)) {
+            Diag(Loc, diag::err_placeholder_missing_auto_after_type_constraint);
+            // Attempt to continue as if 'auto' was placed here.
+            isInvalid = DS.SetTypeSpecType(TST_auto, Loc, PrevSpec, DiagID,
+                                           TemplateId, Policy);
+            break;
+        }
+        if (!NextToken().isOneOf(tok::kw_auto, tok::kw_decltype))
+            goto DoneWithDeclSpec;
+        ConsumeAnnotationToken();
+        SourceLocation AutoLoc = Tok.getLocation();
+        if (TryConsumeToken(tok::kw_decltype)) {
+          if (!Tok.is(tok::l_paren)) {
+            // Something like `void foo(Iterator decltype i)`
+            Diag(Tok, diag::err_expected) << tok::l_paren
+              << FixItHint::CreateInsertion(Tok.getLocation(), "(auto)");
+            UnconsumeToken(Tok);
+          } else {
+            ConsumeParen();
+            if (!TryConsumeToken(tok::kw_auto)) {
+              // Something like `void foo(Iterator decltype(int) i)`
+              SkipUntil(tok::r_paren, SkipUntilFlags::StopBeforeMatch);
+              Diag(Tok, diag::err_placeholder_decltype_non_auto)
+                << FixItHint::CreateReplacement(SourceRange(AutoLoc,
+                                                            Tok.getLocation()),
+                                                "auto");
+            } else if (Tok.isNot(tok::r_paren)) {
+              Diag(Tok, diag::err_expected) << tok::r_paren
+                << FixItHint::CreateInsertion(Tok.getLocation(), ")");
+            }
+          }
+          // Even if something went wrong above, continue as if we've seen
+          // `decltype(auto)`.
+          isInvalid = DS.SetTypeSpecType(TST_decltype_auto, Loc, PrevSpec,
+                                         DiagID, TemplateId, Policy);
+        } else {
+          isInvalid = DS.SetTypeSpecType(TST_auto, Loc, PrevSpec, DiagID,
+                                         TemplateId, Policy);
+        }
+        break;
+      }
+
       if (TemplateId->Kind != TNK_Type_template &&
           TemplateId->Kind != TNK_Undeclared_template) {
         // This template-id does not refer to a type name, so we're

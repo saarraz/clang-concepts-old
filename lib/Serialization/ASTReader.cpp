@@ -6517,13 +6517,22 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
   case TYPE_AUTO: {
     QualType Deduced = readType(*Loc.F, Record, Idx);
     AutoTypeKeyword Keyword = (AutoTypeKeyword)Record[Idx++];
+    ConceptDecl *CD = nullptr;
+    SmallVector<TemplateArgument, 8> Args;
+    if (Record[Idx++]) {
+      CD = ReadDeclAs<ConceptDecl>(*Loc.F, Record, Idx);
+      unsigned NumArgs = Record[Idx++];
+      Args.reserve(NumArgs);
+      while (NumArgs--)
+        Args.push_back(ReadTemplateArgument(*Loc.F, Record, Idx));
+    }
     bool IsDependent = false, IsPack = false;
     if (Deduced.isNull()) {
       IsDependent = Record[Idx] > 0;
       IsPack = Record[Idx] > 1;
       ++Idx;
     }
-    return Context.getAutoType(Deduced, Keyword, IsDependent, IsPack);
+    return Context.getAutoType(Deduced, Keyword, IsDependent, IsPack, CD, Args);
   }
 
   case TYPE_DEDUCED_TEMPLATE_SPECIALIZATION: {
@@ -7042,6 +7051,19 @@ void TypeLocReader::VisitUnaryTransformTypeLoc(UnaryTransformTypeLoc TL) {
 
 void TypeLocReader::VisitAutoTypeLoc(AutoTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation());
+  if (Record[Idx++]) {
+    TL.setNestedNameSpecifierLoc(ReadNestedNameSpecifierLoc());
+    TL.setTemplateKWLoc(ReadSourceLocation());
+    TL.setConceptNameLoc(ReadSourceLocation());
+    TL.setFoundDecl(Reader->ReadDeclAs<NamedDecl>(*F, Record, Idx));
+    TL.setLAngleLoc(ReadSourceLocation());
+    TL.setRAngleLoc(ReadSourceLocation());
+    for (unsigned i = 0, e = TL.getNumArgs(); i != e; ++i)
+      TL.setArgLocInfo(
+          i,
+          Reader->GetTemplateArgumentLocInfo(
+              *F, TL.getTypePtr()->getArg(i).getKind(), Record, Idx));
+  }
 }
 
 void TypeLocReader::VisitDeducedTemplateSpecializationTypeLoc(

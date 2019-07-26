@@ -6570,6 +6570,10 @@ public:
                             TemplateTypeParmDecl *ConstrainedParameter,
                             SourceLocation EllipsisLoc);
 
+  bool AttachTypeConstraint(AutoTypeLoc TL,
+                            NonTypeTemplateParmDecl *ConstrainedParameter,
+                            SourceLocation EllipsisLoc);
+
   QualType CheckNonTypeTemplateParameterType(TypeSourceInfo *&TSI,
                                              SourceLocation Loc);
   QualType CheckNonTypeTemplateParameterType(QualType T, SourceLocation Loc);
@@ -7498,10 +7502,12 @@ public:
 
   DeduceAutoResult
   DeduceAutoType(TypeSourceInfo *AutoType, Expr *&Initializer, QualType &Result,
-                 Optional<unsigned> DependentDeductionDepth = None);
+                 Optional<unsigned> DependentDeductionDepth = None,
+                 bool IgnoreConstraints = false);
   DeduceAutoResult
   DeduceAutoType(TypeLoc AutoTypeLoc, Expr *&Initializer, QualType &Result,
-                 Optional<unsigned> DependentDeductionDepth = None);
+                 Optional<unsigned> DependentDeductionDepth = None,
+                 bool IgnoreConstraints = false);
   void DiagnoseAutoDeductionFailure(VarDecl *VDecl, Expr *Init);
   bool DeduceReturnType(FunctionDecl *FD, SourceLocation Loc,
                         bool Diagnose = true);
@@ -11267,6 +11273,14 @@ private:
   /// The parser maintains this state here.
   Scope *CurScope;
 
+  /// \brief The parser's current TemplateParameterDepth to assign to the next
+  /// template parameter scope
+  ///
+  /// The parser maintains this state - Sema only reads it during initial AST
+  /// construction (do not rely on this during any subsequent
+  /// transformations/instantiations)
+  const unsigned *ParsingTemplateParameterDepthPtr;
+
   mutable IdentifierInfo *Ident_super;
   mutable IdentifierInfo *Ident___float128;
 
@@ -11282,6 +11296,11 @@ private:
   /// Used for diagnostics that implement custom semantic analysis for #include
   /// directives, like -Wpragma-pack.
   sema::SemaPPCallbacks *SemaPPCallbackHandler;
+
+  const unsigned &getParsingTemplateParameterDepth() const {
+    assert(ParsingTemplateParameterDepthPtr);
+    return *ParsingTemplateParameterDepthPtr;
+  }
 
 protected:
   friend class Parser;

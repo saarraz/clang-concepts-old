@@ -1046,6 +1046,13 @@ void TypePrinter::printAutoBefore(const AutoType *T, raw_ostream &OS) {
   if (!T->getDeducedType().isNull()) {
     printBefore(T->getDeducedType(), OS);
   } else {
+    if (T->isConstrained()) {
+      OS << T->getTypeConstraintConcept()->getName();
+      auto Args = T->getTypeConstraintArguments();
+      if (!Args.empty())
+        printTemplateArgumentList(OS, Args, Policy);
+      OS << ' ';
+    }
     switch (T->getKeyword()) {
     case AutoTypeKeyword::Auto: OS << "auto"; break;
     case AutoTypeKeyword::DecltypeAuto: OS << "decltype(auto)"; break;

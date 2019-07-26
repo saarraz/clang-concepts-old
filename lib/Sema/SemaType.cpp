@@ -27,6 +27,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/Lookup.h"
+#include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
@@ -1251,6 +1252,26 @@ getImageAccess(const ParsedAttributesView &Attrs) {
   return OpenCLAccessAttr::Keyword_read_only;
 }
 
+static QualType ConvertConstrainedAutoDeclSpecToType(Sema &S, DeclSpec &DS,
+                                                     AutoTypeKeyword AutoKW) {
+  assert(DS.isConstrainedAuto());
+  TemplateIdAnnotation *TemplateId = DS.getRepAsTemplateId();
+  TemplateArgumentListInfo TemplateArgsInfo;
+  TemplateArgsInfo.setLAngleLoc(TemplateId->LAngleLoc);
+  TemplateArgsInfo.setRAngleLoc(TemplateId->RAngleLoc);
+  ASTTemplateArgsPtr TemplateArgsPtr(TemplateId->getTemplateArgs(),
+                                     TemplateId->NumArgs);
+  S.translateTemplateArguments(TemplateArgsPtr, TemplateArgsInfo);
+  llvm::SmallVector<TemplateArgument, 8> TemplateArgs;
+  for (auto &ArgLoc : TemplateArgsInfo.arguments())
+    TemplateArgs.push_back(ArgLoc.getArgument());
+  return S.Context.getAutoType(QualType(), AutoTypeKeyword::Auto, false,
+                               /*IsPack=*/false,
+                               cast<ConceptDecl>(TemplateId->Template.get()
+                                                 .getAsTemplateDecl()),
+                               TemplateArgs);
+}
+
 /// Convert the specified declspec to the appropriate type
 /// object.
 /// \param state Specifies the declarator containing the declaration specifier
@@ -1595,6 +1616,11 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     break;
 
   case DeclSpec::TST_auto:
+    if (DS.isConstrainedAuto()) {
+      Result = ConvertConstrainedAutoDeclSpecToType(S, DS,
+                                                    AutoTypeKeyword::Auto);
+      break;
+    }
     Result = Context.getAutoType(QualType(), AutoTypeKeyword::Auto, false);
     break;
 
@@ -1603,6 +1629,12 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     break;
 
   case DeclSpec::TST_decltype_auto:
+    if (DS.isConstrainedAuto()) {
+      Result =
+          ConvertConstrainedAutoDeclSpecToType(S, DS,
+                                               AutoTypeKeyword::DecltypeAuto);
+      break;
+    }
     Result = Context.getAutoType(QualType(), AutoTypeKeyword::DecltypeAuto,
                                  /*IsDependent*/ false);
     break;
@@ -2940,8 +2972,12 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       break;
     case DeclaratorContext::ObjCParameterContext:
     case DeclaratorContext::ObjCResultContext:
-    case DeclaratorContext::PrototypeContext:
       Error = 0;
+      break;
+    case DeclaratorContext::PrototypeContext:
+      if (!SemaRef.getLangOpts().ConceptsTS || !Auto ||
+          Auto->getKeyword() != AutoTypeKeyword::Auto)
+        Error = 0;
       break;
     case DeclaratorContext::RequiresExprContext:
       Error = 21;
@@ -4561,7 +4597,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           } else if (D.getContext() != DeclaratorContext::LambdaExprContext &&
                      (T.hasQualifiers() || !isa<AutoType>(T) ||
                       cast<AutoType>(T)->getKeyword() !=
-                          AutoTypeKeyword::Auto)) {
+                          AutoTypeKeyword::Auto ||
+                      cast<AutoType>(T)->isConstrained())) {
             S.Diag(D.getDeclSpec().getTypeSpecTypeLoc(),
                    diag::err_trailing_return_without_auto)
                 << T << D.getDeclSpec().getSourceRange();
@@ -5176,7 +5213,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       //
       // We represent function parameter packs as function parameters whose
       // type is a pack expansion.
-      if (!T->containsUnexpandedParameterPack()) {
+      if (!T->containsUnexpandedParameterPack() &&
+          (!LangOpts.ConceptsTS || !T->getContainedAutoType())) {
         S.Diag(D.getEllipsisLoc(),
              diag::err_function_parameter_pack_without_parameter_packs)
           << T <<  D.getSourceRange();
@@ -5384,14 +5422,15 @@ static void fillAttributedTypeLoc(AttributedTypeLoc TL,
 
 namespace {
   class TypeSpecLocFiller : public TypeLocVisitor<TypeSpecLocFiller> {
+    Sema &SemaRef;
     ASTContext &Context;
     TypeProcessingState &State;
     const DeclSpec &DS;
 
   public:
-    TypeSpecLocFiller(ASTContext &Context, TypeProcessingState &State,
+    TypeSpecLocFiller(Sema &S, ASTContext &Context, TypeProcessingState &State,
                       const DeclSpec &DS)
-        : Context(Context), State(State), DS(DS) {}
+        : SemaRef(S), Context(Context), State(State), DS(DS) {}
 
     void VisitAttributedTypeLoc(AttributedTypeLoc TL) {
       Visit(TL.getModifiedLoc());
@@ -5518,6 +5557,32 @@ namespace {
       assert(TInfo);
       TL.copy(
           TInfo->getTypeLoc().castAs<DependentTemplateSpecializationTypeLoc>());
+    }
+    void VisitAutoTypeLoc(AutoTypeLoc TL) {
+      assert(DS.getTypeSpecType() == TST_auto ||
+             DS.getTypeSpecType() == TST_decltype_auto ||
+             DS.getTypeSpecType() == TST_auto_type ||
+             DS.getTypeSpecType() == TST_unspecified);
+      TL.setNameLoc(DS.getTypeSpecTypeLoc());
+      if (!DS.isConstrainedAuto())
+        return;
+      TemplateIdAnnotation *TemplateId = DS.getRepAsTemplateId();
+      if (TemplateId->SS.isNotEmpty())
+        TL.setNestedNameSpecifierLoc(
+            TemplateId->SS.getWithLocInContext(Context));
+      else
+        TL.setNestedNameSpecifierLoc(NestedNameSpecifierLoc());
+      TL.setConceptNameLoc(TemplateId->TemplateNameLoc);
+      TL.setLAngleLoc(TemplateId->LAngleLoc);
+      TL.setRAngleLoc(TemplateId->RAngleLoc);
+      if (TemplateId->NumArgs == 0)
+        return;
+      TemplateArgumentListInfo TemplateArgsInfo;
+      ASTTemplateArgsPtr TemplateArgsPtr(TemplateId->getTemplateArgs(),
+                                         TemplateId->NumArgs);
+      SemaRef.translateTemplateArguments(TemplateArgsPtr, TemplateArgsInfo);
+      for (unsigned I = 0; I < TemplateId->NumArgs; ++I)
+        TL.setArgLocInfo(I, TemplateArgsInfo.arguments()[I].getLocInfo());
     }
     void VisitTagTypeLoc(TagTypeLoc TL) {
       TL.setNameLoc(DS.getTypeSpecTypeNameLoc());
@@ -5788,7 +5853,7 @@ GetTypeSourceInfoForDeclarator(TypeProcessingState &State,
     assert(TL.getFullDataSize() == CurrTL.getFullDataSize());
     memcpy(CurrTL.getOpaqueData(), TL.getOpaqueData(), TL.getFullDataSize());
   } else {
-    TypeSpecLocFiller(S.Context, State, D.getDeclSpec()).Visit(CurrTL);
+    TypeSpecLocFiller(S, S.Context, State, D.getDeclSpec()).Visit(CurrTL);
   }
 
   return TInfo;

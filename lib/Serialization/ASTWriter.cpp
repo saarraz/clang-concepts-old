@@ -368,6 +368,14 @@ void ASTTypeWriter::VisitUnaryTransformType(const UnaryTransformType *T) {
 void ASTTypeWriter::VisitAutoType(const AutoType *T) {
   Record.AddTypeRef(T->getDeducedType());
   Record.push_back((unsigned)T->getKeyword());
+  Record.push_back((unsigned)T->isConstrained());
+  if (T->isConstrained()) {
+    Record.AddDeclRef(T->getTypeConstraintConcept());
+    auto Args = T->getTypeConstraintArguments();
+    Record.push_back(Args.size());
+    for (const auto &Arg : Args)
+      Record.AddTemplateArgument(Arg);
+  }
   if (T->getDeducedType().isNull())
     Record.push_back(T->containsUnexpandedParameterPack() ? 2 :
                      T->isDependentType() ? 1 : 0);
@@ -760,6 +768,19 @@ void TypeLocWriter::VisitUnaryTransformTypeLoc(UnaryTransformTypeLoc TL) {
 
 void TypeLocWriter::VisitAutoTypeLoc(AutoTypeLoc TL) {
   Record.AddSourceLocation(TL.getNameLoc());
+  Record.push_back(TL.isConstrained());
+  if (TL.isConstrained()) {
+    Record.AddNestedNameSpecifierLoc(TL.getNestedNameSpecifierLoc());
+    Record.AddSourceLocation(TL.getTemplateKWLoc());
+    Record.AddSourceLocation(TL.getConceptNameLoc());
+    Record.AddDeclRef(TL.getFoundDecl());
+    Record.AddSourceLocation(TL.getLAngleLoc());
+    Record.AddSourceLocation(TL.getRAngleLoc());
+    Record.push_back(TL.getNumArgs());
+    for (unsigned I = 0; I < TL.getNumArgs(); ++I)
+      Record.AddTemplateArgumentLocInfo(TL.getTypePtr()->getArg(I).getKind(),
+                                        TL.getArgLocInfo(I));
+  }
 }
 
 void TypeLocWriter::VisitDeducedTemplateSpecializationTypeLoc(

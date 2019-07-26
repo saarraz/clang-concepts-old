@@ -1518,6 +1518,11 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
       *InvalidAsDeclSpec = NextToken().is(tok::l_paren);
       return TPResult::Ambiguous;
     }
+    // We have a placeholder-constraint (we check for 'auto' or 'decltype' to
+    // distinguish 'C<int>;' from 'C<int> auto c = 1;')
+    if (TemplateId->Kind == TNK_Concept_template &&
+        NextToken().isOneOf(tok::kw_auto, tok::kw_decltype))
+      return TPResult::True;
     if (TemplateId->Kind != TNK_Type_template)
       return TPResult::False;
     CXXScopeSpec SS;

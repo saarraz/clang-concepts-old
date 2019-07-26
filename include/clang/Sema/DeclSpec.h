@@ -349,6 +349,7 @@ private:
   unsigned TypeSpecOwned : 1;
   unsigned TypeSpecPipe : 1;
   unsigned TypeSpecSat : 1;
+  unsigned ConstrainedAuto : 1;
 
   // type-qualifiers
   unsigned TypeQualifiers : 5;  // Bitwise OR of TQ.
@@ -369,6 +370,7 @@ private:
     UnionParsedType TypeRep;
     Decl *DeclRep;
     Expr *ExprRep;
+    TemplateIdAnnotation *TemplateIdRep;
   };
 
   /// ExplicitSpecifier - Store information about explicit spicifer.
@@ -413,6 +415,9 @@ private:
   static bool isExprRep(TST T) {
     return (T == TST_typeofExpr || T == TST_decltype);
   }
+  static bool isTemplateIdRep(TST T) {
+    return (T == TST_auto || T == TST_decltype_auto);
+  }
 
   DeclSpec(const DeclSpec &) = delete;
   void operator=(const DeclSpec &) = delete;
@@ -430,7 +435,8 @@ public:
         TypeSpecComplex(TSC_unspecified), TypeSpecSign(TSS_unspecified),
         TypeSpecType(TST_unspecified), TypeAltiVecVector(false),
         TypeAltiVecPixel(false), TypeAltiVecBool(false), TypeSpecOwned(false),
-        TypeSpecPipe(false), TypeSpecSat(false), TypeQualifiers(TQ_unspecified),
+        TypeSpecPipe(false), TypeSpecSat(false), ConstrainedAuto(false),
+        TypeQualifiers(TQ_unspecified),
         FS_inline_specified(false), FS_forceinline_specified(false),
         FS_virtual_specified(false), FS_noreturn_specified(false),
         Friend_specified(false), ConstexprSpecifier(CSK_unspecified),
@@ -478,6 +484,7 @@ public:
   bool isTypeRep() const { return isTypeRep((TST) TypeSpecType); }
   bool isTypeSpecPipe() const { return TypeSpecPipe; }
   bool isTypeSpecSat() const { return TypeSpecSat; }
+  bool isConstrainedAuto() const { return ConstrainedAuto; }
 
   ParsedType getRepAsType() const {
     assert(isTypeRep((TST) TypeSpecType) && "DeclSpec does not store a type");
@@ -490,6 +497,11 @@ public:
   Expr *getRepAsExpr() const {
     assert(isExprRep((TST) TypeSpecType) && "DeclSpec does not store an expr");
     return ExprRep;
+  }
+  TemplateIdAnnotation *getRepAsTemplateId() const {
+    assert(isTemplateIdRep((TST) TypeSpecType) &&
+           "DeclSpec does not store a template id");
+    return TemplateIdRep;
   }
   CXXScopeSpec &getTypeSpecScope() { return TypeScope; }
   const CXXScopeSpec &getTypeSpecScope() const { return TypeScope; }
@@ -665,6 +677,9 @@ public:
   bool SetTypeSpecType(TST T, SourceLocation TagKwLoc,
                        SourceLocation TagNameLoc, const char *&PrevSpec,
                        unsigned &DiagID, Decl *Rep, bool Owned,
+                       const PrintingPolicy &Policy);
+  bool SetTypeSpecType(TST T, SourceLocation Loc, const char *&PrevSpec,
+                       unsigned &DiagID, TemplateIdAnnotation *Rep,
                        const PrintingPolicy &Policy);
 
   bool SetTypeSpecType(TST T, SourceLocation Loc, const char *&PrevSpec,

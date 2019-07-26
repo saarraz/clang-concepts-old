@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "TreeTransform.h"
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
@@ -8392,14 +8393,183 @@ static Scope *getTagInjectionScope(Scope *S, const LangOptions &LangOpts) {
   return S;
 }
 
+namespace {
+  class AbbreviatedFunctionTemplateParameterReplacer :
+      public TreeTransform<AbbreviatedFunctionTemplateParameterReplacer> {
+    llvm::SmallVectorImpl<NamedDecl *> &InventedTemplateParams;
+    llvm::SmallVector<ParmVarDecl *, 4> TransformedParams;
+    DeclaratorChunk::ParamInfo *Params;
+    unsigned Depth;
+    unsigned Index;
+    AutoTypeLoc AutoTL;
+    TemplateTypeParmDecl *CurrentParam = nullptr;
+    bool TopLevelParameter = true;
+    unsigned TransformedParamIndex = 0;
+    bool TransformingParameters = false;
+    unsigned ParameterCount = 0;
+  public:
+    AbbreviatedFunctionTemplateParameterReplacer(
+      Sema &SemaRef, llvm::SmallVectorImpl<NamedDecl *> &InventedTemplateParams,
+      unsigned Depth, unsigned Index, DeclaratorChunk::ParamInfo *Params)
+      : TreeTransform<AbbreviatedFunctionTemplateParameterReplacer>(SemaRef),
+      InventedTemplateParams(InventedTemplateParams),
+      Params(Params), Depth(Depth), Index(Index) {}
+
+    TypeSourceInfo *ProcessFunctionType(TypeSourceInfo *FTI) {
+      TopLevelParameter = true;
+      ParameterCount =
+          FTI->getTypeLoc().getAs<FunctionProtoTypeLoc>().getNumParams();
+      TypeSourceInfo *Result = TransformType(FTI);
+      assert(TransformedParams.size() == ParameterCount);
+      TopLevelParameter = false;
+      return Result;
+    }
+
+    QualType TransformAutoType(TypeLocBuilder &TLB, AutoTypeLoc TL) {
+      if (CurrentParam) {
+        AutoTL = TL;
+        QualType T = QualType(CurrentParam->getTypeForDecl(), 0);
+        TemplateTypeParmTypeLoc NewTL = TLB.push<TemplateTypeParmTypeLoc>(T);
+        NewTL.setNameLoc(TL.getNameLoc());
+        return T;
+      }
+      AutoTypeLoc NewTL = TLB.push<AutoTypeLoc>(TL.getType());
+      NewTL.copy(TL);
+      return TL.getType();
+    }
+
+    bool TransformFunctionTypeParams(
+      SourceLocation Loc, ArrayRef<ParmVarDecl *> Params,
+      const QualType *ParamTypes,
+      const FunctionProtoType::ExtParameterInfo *ParamInfos,
+      SmallVectorImpl<QualType> &PTypes, SmallVectorImpl<ParmVarDecl *> *PVars,
+      Sema::ExtParameterInfoBuilder &PInfos) {
+      bool PrevTransformingParameters = TransformingParameters;
+      TransformingParameters = true;
+      TransformedParamIndex = 0;
+      bool Result = TreeTransform::TransformFunctionTypeParams(Loc, Params,
+                                                               ParamTypes,
+                                                               ParamInfos,
+                                                               PTypes, PVars,
+                                                               PInfos);
+      TransformingParameters = PrevTransformingParameters;
+      return Result;
+    }
+
+    ExprResult TransformDeclRefExpr(DeclRefExpr *E) {
+      for (unsigned I = 0; I != ParameterCount; ++I)
+        if (E->getDecl() == Params[I].Param)
+          return RebuildDeclRefExpr(
+              E->getQualifierLoc(), TransformedParams[I], E->getNameInfo(),
+              nullptr);
+      return TreeTransform::TransformDeclRefExpr(E);
+    }
+
+    ParmVarDecl *
+    TransformFunctionTypeParam(ParmVarDecl *OldParm, int indexAdjustment,
+                               Optional<unsigned> NumExpansions,
+                               bool ExpectParameterPack) {
+      ParmVarDecl *NewParm =
+          TreeTransform::TransformFunctionTypeParam(OldParm, indexAdjustment,
+                                                    NumExpansions,
+                                                    ExpectParameterPack);
+      if (TransformingParameters && TopLevelParameter)
+        TransformedParams.push_back(NewParm);
+      return NewParm;
+    }
+    using TreeTransform::TransformType;
+
+
+    TypeSourceInfo *TransformType(TypeSourceInfo *DI) {
+      if (!TransformingParameters) {
+        return TreeTransform::TransformType(DI);
+      }
+      TransformingParameters = false;
+      bool IsTopLevelParameter = TopLevelParameter;
+      TopLevelParameter = false;
+
+      AutoType *AT = DI->getType()->getContainedAutoType();
+      if (!AT || AT->isDeduced() || !IsTopLevelParameter) {
+        if (AT && !AT->isDeduced()) {
+          // This means 'auto' or similar was used in the parameter of a
+          // function type which is not the top-level parameter of the
+          // abbreviated function template (e.g. 'void foo(int (*x)(auto));').
+          if (AT->getKeyword() == AutoTypeKeyword::Auto)
+            SemaRef.Diag(DI->getTypeLoc().getBeginLoc(),
+                         diag::err_param_nested_auto_not_allowed);
+          else
+            SemaRef.Diag(DI->getTypeLoc().getBeginLoc(),
+                         diag::err_auto_not_allowed)
+                << (AT->getKeyword() == AutoTypeKeyword::DecltypeAuto ? 1 : 2)
+                << 0;
+        }
+        TypeSourceInfo *NewDI = TreeTransform::TransformType(DI);
+
+        TransformedParamIndex++;
+        TopLevelParameter = IsTopLevelParameter;
+        TransformingParameters = true;
+        return NewDI;
+      }
+
+      // We're transforming the type of an undeduced, top level, auto-typed
+      // parameter.
+      ParmVarDecl *OldParm =
+          cast<ParmVarDecl>(Params[TransformedParamIndex++].Param);
+      assert(OldParm->getType() == DI->getType());
+
+      // Create the TemplateTypeParmDecl here to retrieve the corresponding
+      // template parameter type. Template parameters are temporarily added
+      // to the TU until the associated TemplateDecl is created.
+      TemplateTypeParmDecl *CorrespondingTemplateParam =
+          TemplateTypeParmDecl::Create(
+              SemaRef.Context, SemaRef.Context.getTranslationUnitDecl(),
+              /*KeyLoc=*/SourceLocation(), /*NameLoc=*/OldParm->getLocation(),
+              Depth, Index++, /*Identifier=*/nullptr, /*Typename=*/false,
+              OldParm->isParameterPack(),
+              /*OwnsTypeConstraint=*/AT->isConstrained());
+      CorrespondingTemplateParam->setImplicit();
+      InventedTemplateParams.push_back(CorrespondingTemplateParam);
+
+      // This will also find the TypeLoc of the AutoType and place it in AutoTL.
+      CurrentParam = CorrespondingTemplateParam;
+      TypeSourceInfo *NewParmType = TransformType(OldParm->getTypeSourceInfo());
+      CurrentParam = nullptr;
+
+      if (AT->isConstrained()) {
+        TemplateArgumentListInfo TemplateArgs(AutoTL.getLAngleLoc(),
+                                              AutoTL.getRAngleLoc());
+        if (AutoTL.wereArgumentsSpecified())
+          for (unsigned I = 0, C = AutoTL.getNumArgs(); I != C; ++I)
+            TemplateArgs.addArgument(AutoTL.getArgLoc(I));
+        SemaRef.AttachTypeConstraint(AutoTL.getNestedNameSpecifierLoc(),
+            AutoTL.getConceptNameInfo(), AutoTL.getNamedConcept(),
+            AutoTL.wereArgumentsSpecified() ? &TemplateArgs : nullptr,
+            CorrespondingTemplateParam,
+            OldParm->isParameterPack() ?
+            OldParm->getTypeSourceInfo()->getTypeLoc()
+              .getAs<PackExpansionTypeLoc>().getEllipsisLoc() :
+            SourceLocation());
+      }
+
+      TopLevelParameter = IsTopLevelParameter;
+      TransformingParameters = true;
+      return NewParmType;
+    }
+  };
+}
+
+
 NamedDecl*
 Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
                               TypeSourceInfo *TInfo, LookupResult &Previous,
-                              MultiTemplateParamsArg TemplateParamLists,
+                              MultiTemplateParamsArg TemplateParamListsRef,
                               bool &AddToScope) {
   QualType R = TInfo->getType();
 
   assert(R->isFunctionType());
+  SmallVector<TemplateParameterList *, 4> TemplateParamLists;
+  for (TemplateParameterList *TPL : TemplateParamListsRef)
+    TemplateParamLists.push_back(TPL);
 
   // TODO: consider using NameInfo for diagnostic.
   DeclarationNameInfo NameInfo = GetNameForDeclarator(D);
@@ -8428,6 +8598,17 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
   DeclContext *OriginalDC = DC;
   bool IsLocalExternDecl = adjustContextForLocalExternDecl(DC);
+
+  bool IsAbbreviatedTemplate = false;
+  if (LangOpts.ConceptsTS) {
+    const auto *FPT = R->castAs<FunctionProtoType>();
+    for (auto Type : FPT->param_types())
+      if (Type->getContainedAutoType()) {
+        IsAbbreviatedTemplate = true;
+        assert(D.isFunctionDeclarator());
+        break;
+      }
+  }
 
   FunctionDecl *NewFD = CreateNewFunctionDecl(*this, D, DC, R, TInfo, SC,
                                               isVirtualOkay);
@@ -8480,17 +8661,58 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     // Match up the template parameter lists with the scope specifier, then
     // determine whether we have a template or a template specialization.
     bool Invalid = false;
-    if (TemplateParameterList *TemplateParams =
-            MatchTemplateParametersToScopeSpecifier(
-                D.getDeclSpec().getBeginLoc(), D.getIdentifierLoc(),
-                D.getCXXScopeSpec(),
-                D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId
-                    ? D.getName().TemplateId
-                    : nullptr,
-                TemplateParamLists, isFriend, isMemberSpecialization,
-                Invalid)) {
-      if (TemplateParams->size() > 0) {
+    TemplateParameterList *TemplateParams =
+        MatchTemplateParametersToScopeSpecifier(
+            D.getDeclSpec().getBeginLoc(), D.getIdentifierLoc(),
+            D.getCXXScopeSpec(),
+            D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId
+                ? D.getName().TemplateId
+                : nullptr,
+            TemplateParamLists, isFriend, isMemberSpecialization,
+            Invalid);
+    if (IsAbbreviatedTemplate || TemplateParams) {
+      if (IsAbbreviatedTemplate || TemplateParams->size() > 0) {
         // This is a function template
+
+        // If this is an abbreviated template (e.g. void foo(auto x)) - replace
+        // all placeholder-typed parameters with corresponding invented template
+        // parameters, and either add them to the matched template parameter
+        // list, or create a new template parameter list
+        if (IsAbbreviatedTemplate) {
+          SmallVector<NamedDecl *, 4> NewTemplateParams;
+          if (TemplateParams)
+            NewTemplateParams.append(TemplateParams->begin(),
+                                     TemplateParams->end());
+          TInfo = cast_or_null<TypeSourceInfo>(
+              AbbreviatedFunctionTemplateParameterReplacer(*this,
+                  NewTemplateParams,
+                  TemplateParams
+                    ? TemplateParams->getDepth()
+                    : getParsingTemplateParameterDepth(),
+                  NewTemplateParams.size(), D.getFunctionTypeInfo().Params)
+                  .ProcessFunctionType(TInfo));
+          if (!TInfo)
+            return nullptr;
+          NewFD->setType(TInfo->getType());
+          NewFD->setTypeSourceInfo(TInfo);
+          R = TInfo->getType();
+          TemplateParameterList *NewTPL;
+          if (TemplateParams)
+            NewTPL = TemplateParameterList::Create(
+                Context, TemplateParams->getTemplateLoc(),
+                TemplateParams->getLAngleLoc(), NewTemplateParams,
+                TemplateParams->getRAngleLoc(),
+                TemplateParams->getRequiresClause());
+          else
+            NewTPL = TemplateParameterList::Create(Context, SourceLocation(),
+                SourceLocation(), NewTemplateParams, SourceLocation(),
+                /*RequiresClause=*/nullptr);
+          if (TemplateParams)
+            TemplateParamLists.back() = NewTPL;
+          else
+            TemplateParamLists.push_back(NewTPL);
+          TemplateParams = NewTPL;
+        }
 
         // Check that we can declare a template here.
         if (CheckTemplateDeclScope(S, TemplateParams))
@@ -8521,7 +8743,8 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         // For source fidelity, store the other template param lists.
         if (TemplateParamLists.size() > 1) {
           NewFD->setTemplateParameterListsInfo(Context,
-                                               TemplateParamLists.drop_back(1));
+              ArrayRef<TemplateParameterList *>(TemplateParamLists)
+                  .drop_back(1));
         }
       } else {
         // This is a function template specialization.
@@ -8780,8 +9003,13 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     // We let through "const void" here because Sema::GetTypeForDeclarator
     // already checks for that case.
     if (FTIHasNonVoidParameters(FTI) && FTI.Params[0].Param) {
+      auto FLoc = TInfo->getTypeLoc().getAs<FunctionProtoTypeLoc>();
       for (unsigned i = 0, e = FTI.NumParams; i != e; ++i) {
-        ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
+        ParmVarDecl *Param;
+        if (IsAbbreviatedTemplate)
+          Param = FLoc.getParam(i);
+        else
+          Param = cast<ParmVarDecl>(FTI.Params[i].Param);
         assert(Param->getDeclContext() != NewFD && "Was set before ?");
         Param->setDeclContext(NewFD);
         Params.push_back(Param);
